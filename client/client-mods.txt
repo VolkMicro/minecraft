@@ -1,0 +1,22 @@
+# Required shared mods
+create
+create-aeronautics
+create-deco
+sable
+farmers-delight
+sophisticated-backpacks
+sophisticated-core
+waystones
+balm
+lootr
+yungs-api
+yungs-better-dungeons
+yungs-better-mineshafts
+yungs-better-strongholds
+yungs-better-desert-temples
+ferrite-core
+modernfix
+
+# Client QoL
+jei
+jade

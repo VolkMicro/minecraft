@@ -1,0 +1,5 @@
+server/data/
+server/.env
+*.log
+*.tmp
+*.zip

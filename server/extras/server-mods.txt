@@ -1,0 +1,26 @@
+# Core mods
+create
+create-aeronautics
+create-deco
+sable
+
+# Shared gameplay
+farmers-delight
+sophisticated-backpacks
+sophisticated-core
+waystones
+balm
+lootr
+
+# World generation
+yungs-api
+yungs-better-dungeons
+yungs-better-mineshafts
+yungs-better-strongholds
+yungs-better-desert-temples
+
+# Server optimization and diagnostics
+ferrite-core
+modernfix
+spark
+chunky

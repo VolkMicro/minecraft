@@ -1,0 +1,38 @@
+services:
+  mc:
+    image: itzg/minecraft-server:java21
+    container_name: mc-create-aeronautics
+    tty: true
+    stdin_open: true
+    restart: unless-stopped
+    ports:
+      - "25565:25565"
+    environment:
+      EULA: "TRUE"
+      TYPE: "NEOFORGE"
+      VERSION: "1.21.1"
+      NEOFORGE_VERSION: "21.1.227"
+      MEMORY: "8G"
+      INIT_MEMORY: "2G"
+      USE_AIKAR_FLAGS: "true"
+      MAX_PLAYERS: "6"
+      MOTD: "Create Aeronautics | Industrial Skyworks"
+      LEVEL: "world"
+      DIFFICULTY: "normal"
+      MODE: "survival"
+      PVP: "false"
+      ALLOW_FLIGHT: "true"
+      ENABLE_COMMAND_BLOCK: "false"
+      ONLINE_MODE: "false"
+      ENFORCE_WHITELIST: "false"
+      VIEW_DISTANCE: "10"
+      SIMULATION_DISTANCE: "8"
+      SPAWN_PROTECTION: "0"
+      MODRINTH_PROJECTS: "@/extras/server-mods.txt"
+      MODRINTH_DOWNLOAD_DEPENDENCIES: "required"
+      MODRINTH_PROJECTS_DEFAULT_VERSION_TYPE: "release"
+      REMOVE_OLD_MODS: "true"
+      TZ: "Europe/Moscow"
+    volumes:
+      - ./data:/data
+      - ./extras:/extras:ro
