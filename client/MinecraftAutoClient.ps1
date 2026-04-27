@@ -379,7 +379,7 @@ function Sync-Mods {
 function Get-HMCLDownloadInfo {
     param([pscustomobject]$Manifest)
 
-    $defaultUrl = "https://github.com/HMCL-dev/HMCL/releases/download/release-3.12.4/HMCL-3.12.4.exe"
+    $defaultUrl = "https://github.com/HMCL-dev/HMCL/releases/download/v3.12.4/HMCL-3.12.4.exe"
     $defaultVersion = "3.12.4"
 
     return [pscustomobject]@{
