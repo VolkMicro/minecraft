@@ -454,14 +454,15 @@ function Add-LogLine {
 
 # --- Server status async check ------------------------
 function Update-ServerStatus {
-    $dot   = $ui.SrvDot
-    $label = $ui.SrvLabel
+    $dot     = $script:ui.SrvDot
+    $label   = $script:ui.SrvLabel
+    $_srvUrl = $script:ServerStatus
 
     $srvWorker = New-Object System.ComponentModel.BackgroundWorker
     $srvWorker.Add_DoWork({
         param($s, $e)
         try {
-            $result = Invoke-RestMethod -Uri $ServerStatus -TimeoutSec 6 -ErrorAction Stop
+            $result = Invoke-RestMethod -Uri $e.Argument -TimeoutSec 6 -ErrorAction Stop
             $e.Result = $result
         } catch {
             $e.Result = $null
@@ -482,7 +483,7 @@ function Update-ServerStatus {
             $label.Text      = "95.105.73.172  ·  Offline"
         }
     })
-    $srvWorker.RunWorkerAsync() | Out-Null
+    $srvWorker.RunWorkerAsync($_srvUrl) | Out-Null
 }
 
 # --- RAM string helper --------------------------------
@@ -516,9 +517,10 @@ $worker.Add_DoWork({
     param($sender, $e)
 
     $updateOnly = [bool]$e.Argument
+    $_url       = $script:ManifestUrl
 
-    $sender.ReportProgress(5,  [pscustomobject]@{ status = "Fetching manifest";   log = "Fetching manifest from $ManifestUrl" })
-    $manifest = Invoke-RestMethod -Uri $ManifestUrl
+    $sender.ReportProgress(5,  [pscustomobject]@{ status = "Fetching manifest";   log = "Fetching manifest from $_url" })
+    $manifest = Invoke-RestMethod -Uri $_url
 
     $sender.ReportProgress(15, [pscustomobject]@{ status = "Checking Java";       log = "Checking Java runtime" })
     Ensure-Java -Reporter $sender -ProgressState ([pscustomobject]@{ Percent = 20 })
@@ -529,12 +531,12 @@ $worker.Add_DoWork({
     $sender.ReportProgress(45, [pscustomobject]@{ status = "Syncing mods";        log = "Comparing local mods with server manifest" })
     Sync-Mods -Manifest $manifest -Reporter $sender -StartPercent 45 -EndPercent 88
 
-    if (-not $updateOnly -and -not $NoLauncherStart) {
+    if (-not $updateOnly -and -not $script:NoLauncherStart) {
         $sender.ReportProgress(92, [pscustomobject]@{ status = "Preparing launcher"; log = "Looking for launcher" })
         $launcher = Ensure-TLauncher -Manifest $manifest -Reporter $sender -Percent 94
 
         if ($launcher) {
-            $xmx = Get-RamXmx -Selected $ui.RamCombo.SelectedItem
+            $xmx = Get-RamXmx -Selected $script:ui.RamCombo.SelectedItem
             $sender.ReportProgress(98, [pscustomobject]@{ status = "Launching"; log = "Starting launcher  (RAM: $xmx)" })
             Start-Process -FilePath $launcher | Out-Null
             $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher started"; log = "Done." })
@@ -551,41 +553,41 @@ $worker.Add_DoWork({
 
 $worker.Add_ProgressChanged({
     param($sender, $e)
-    $ui.Progress.Value = [Math]::Min(100, [Math]::Max(0, $e.ProgressPercentage))
+    $script:ui.Progress.Value = [Math]::Min(100, [Math]::Max(0, $e.ProgressPercentage))
     if ($e.UserState) {
-        if ($e.UserState.status) { $ui.Status.Text = $e.UserState.status }
-        if ($e.UserState.log)    { Add-LogLine -Log $ui.Log -Message $e.UserState.log }
+        if ($e.UserState.status) { $script:ui.Status.Text = $e.UserState.status }
+        if ($e.UserState.log)    { Add-LogLine -Log $script:ui.Log -Message $e.UserState.log }
     }
 })
 
 $worker.Add_RunWorkerCompleted({
     param($sender, $e)
-    $ui.PlayButton.Enabled   = $true
-    $ui.UpdateButton.Enabled = $true
+    $script:ui.PlayButton.Enabled   = $true
+    $script:ui.UpdateButton.Enabled = $true
 
     if ($e.Error) {
-        $ui.Status.Text      = "Failed"
-        $ui.Status.ForeColor = $C.TextRed
-        Add-LogLine -Log $ui.Log -Message ("ERROR: " + $e.Error.Exception.Message)
+        $script:ui.Status.Text      = "Failed"
+        $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(248, 113, 113)
+        Add-LogLine -Log $script:ui.Log -Message ("ERROR: " + $e.Error.Exception.Message)
         return
     }
 
     $m      = $e.Result
     $server = if ($m -and $m.pack) { $m.pack.server_address } else { "unknown" }
-    $ui.Status.Text      = "Ready  ·  Server: $server"
-    $ui.Status.ForeColor = $C.TextGreen
-    Add-LogLine -Log $ui.Log -Message ("All done.  Server address: $server")
+    $script:ui.Status.Text      = "Ready  -  Server: $server"
+    $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
+    Add-LogLine -Log $script:ui.Log -Message ("All done.  Server address: $server")
 })
 
 function Start-ClientFlow {
     param([bool]$UpdateOnly)
-    if ($worker.IsBusy) { return }
-    $ui.PlayButton.Enabled   = $false
-    $ui.UpdateButton.Enabled = $false
-    $ui.Status.ForeColor     = $C.Accent
-    $ui.Progress.Value       = 0
-    Add-LogLine -Log $ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ---"
-    $worker.RunWorkerAsync($UpdateOnly)
+    if ($script:worker.IsBusy) { return }
+    $script:ui.PlayButton.Enabled   = $false
+    $script:ui.UpdateButton.Enabled = $false
+    $script:ui.Status.ForeColor     = [System.Drawing.Color]::FromArgb(14, 165, 233)
+    $script:ui.Progress.Value       = 0
+    Add-LogLine -Log $script:ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ---"
+    $script:worker.RunWorkerAsync($UpdateOnly)
 }
 
 $ui.PlayButton.Add_Click({   Start-ClientFlow -UpdateOnly:$false })
