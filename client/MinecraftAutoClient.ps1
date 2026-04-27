@@ -144,9 +144,9 @@ function Find-Java21 {
     foreach ($reg in $regPaths) {
         if (Test-Path $reg) {
             Get-ChildItem $reg -ErrorAction SilentlyContinue | ForEach-Object {
-                $home = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).JavaHome
-                if ($home) {
-                    $p = Join-Path $home 'bin\java.exe'
+                $javaHome = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).JavaHome
+                if ($javaHome) {
+                    $p = Join-Path $javaHome 'bin\java.exe'
                     if (Test-Path $p) { $candidates += $p }
                 }
             }
