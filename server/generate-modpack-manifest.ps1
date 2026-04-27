@@ -71,5 +71,9 @@ $manifest = [ordered]@{
     mods = $manifestMods
 }
 
-$manifest | ConvertTo-Json -Depth 10 | Set-Content -Path $OutFile -Encoding UTF8
+$manifestJson = $manifest | ConvertTo-Json -Depth 10
+
+# Write UTF-8 without BOM so strict JSON parsers do not fail on a leading U+FEFF character.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($OutFile, $manifestJson, $utf8NoBom)
 Write-Host "Manifest written: $OutFile"
