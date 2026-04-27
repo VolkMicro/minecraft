@@ -108,6 +108,26 @@ function Get-PackProfileName {
     return "Create Aeronautics Pack"
 }
 
+function Invoke-Download {
+    param(
+        [string]$Uri,
+        [string]$OutFile,
+        [int]$MaxRetries = 3,
+        [int]$RetryDelaySec = 3
+    )
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try {
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing
+            return
+        } catch {
+            if ($attempt -ge $MaxRetries) { throw }
+            Start-Sleep -Seconds $RetryDelaySec
+        }
+    }
+}
+
 function Find-Java21 {
     # Search for a Java 17+ executable, preferring Temurin/Eclipse installations
     $candidates = @()
@@ -258,7 +278,7 @@ function Ensure-NeoForge {
         status = "Загрузка NeoForge"
         log = "Скачиваем установщик NeoForge: $($Manifest.neoforge.version)"
     })
-    Invoke-WebRequest -Uri $Manifest.neoforge.installer_url -OutFile $installerPath
+    Invoke-Download -Uri $Manifest.neoforge.installer_url -OutFile $installerPath
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
         status = "Установка NeoForge"
@@ -341,7 +361,7 @@ function Sync-Mods {
                 status = "Синхронизация модов ($index/$total)"
                 log = "Скачиваем $($mod.filename)"
             })
-            Invoke-WebRequest -Uri $mod.url -OutFile $target
+            Invoke-Download -Uri $mod.url -OutFile $target
             $hash = Get-FileSHA512 -Path $target
             if ($hash -ne $mod.sha512) {
                 throw "Контрольная сумма не совпадает после загрузки: $($mod.filename)"
@@ -404,7 +424,7 @@ function Ensure-HMCL {
         status = "Загрузка HMCL"
             log = "Скачиваем HMCL портативный $($downloadInfo.Version)"
     })
-    Invoke-WebRequest -Uri $downloadInfo.Url -OutFile $downloadPath
+    Invoke-Download -Uri $downloadInfo.Url -OutFile $downloadPath
 
     Copy-Item -Path $downloadPath -Destination $script:HMCLExe -Force
     Set-Content -Path $script:HMCLVersionMarker -Value $downloadInfo.Version -Encoding UTF8
@@ -817,7 +837,13 @@ function Invoke-ClientFlow {
         $ramMb = Get-RamMb -Selected $script:ui.RamCombo.SelectedItem
 
         & $reporter.ReportProgress 5 ([pscustomobject]@{ status = "Загрузка манифеста"; log = "Загружаем манифест с $script:ManifestUrl" })
-        $manifest = Invoke-RestMethod -Uri $script:ManifestUrl
+        $manifest = $null
+        $manifestAttempt = 0
+        while ($true) {
+            $manifestAttempt++
+            try { $manifest = Invoke-RestMethod -Uri $script:ManifestUrl; break }
+            catch { if ($manifestAttempt -ge 3) { throw } ; Start-Sleep -Seconds 3 }
+        }
 
         & $reporter.ReportProgress 12 ([pscustomobject]@{ status = "Подготовка директории"; log = "Портативная директория: $script:PortableRoot" })
         Ensure-Directory -Path $script:PortableRoot
