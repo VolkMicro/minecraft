@@ -6,6 +6,8 @@ on:
     paths:
       - "client/**"
       - ".github/workflows/release.yml"
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -31,8 +33,12 @@ jobs:
         run: |
           $ver = "${{ github.event.inputs.version }}"
           if (-not $ver) {
-            # derive from date + short SHA
-            $ver = "$(Get-Date -Format 'yyyy.MM.dd')-$(git rev-parse --short HEAD)"
+            $ref = "${{ github.ref }}"
+            if ($ref -match '^refs/tags/v(.+)$') {
+              $ver = $Matches[1]
+            } else {
+              $ver = "$(Get-Date -Format 'yyyy.MM.dd')-$(git rev-parse --short HEAD)"
+            }
           }
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
           echo "Resolved version: $ver"
