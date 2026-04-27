@@ -24,7 +24,14 @@ $script:GameRoot = Join-Path $script:PortableRoot "game"
 function Get-FileSHA512 {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return $null }
-    return (Get-FileHash -Path $Path -Algorithm SHA512).Hash.ToLowerInvariant()
+    $sha = [System.Security.Cryptography.SHA512]::Create()
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            $hashBytes = $sha.ComputeHash($stream)
+            return [System.BitConverter]::ToString($hashBytes).Replace('-', '').ToLowerInvariant()
+        } finally { $stream.Dispose() }
+    } finally { $sha.Dispose() }
 }
 
 function Ensure-Directory {
