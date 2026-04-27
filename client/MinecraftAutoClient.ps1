@@ -108,24 +108,83 @@ function Get-PackProfileName {
     return "Create Aeronautics Pack"
 }
 
+function Find-Java21 {
+    # Search for a Java 17+ executable, preferring Temurin/Eclipse installations
+    $candidates = @()
+
+    # 1. Check JAVA_HOME
+    if ($env:JAVA_HOME) {
+        $p = Join-Path $env:JAVA_HOME 'bin\java.exe'
+        if (Test-Path $p) { $candidates += $p }
+    }
+
+    # 2. Well-known Temurin/MSJDK install dirs
+    $searchRoots = @(
+        "$env:ProgramFiles\Eclipse Adoptium",
+        "$env:ProgramFiles\Microsoft",
+        "$env:ProgramFiles\Java",
+        "C:\Program Files\Eclipse Adoptium",
+        "C:\Program Files\Microsoft"
+    )
+    foreach ($root in $searchRoots) {
+        if (Test-Path $root) {
+            $found = Get-ChildItem -Path $root -Recurse -Filter 'java.exe' -ErrorAction SilentlyContinue |
+                     Where-Object { $_.FullName -notmatch 'javaw' } |
+                     Sort-Object FullName -Descending
+            foreach ($f in $found) { $candidates += $f.FullName }
+        }
+    }
+
+    # 3. Registry: Temurin (Eclipse Adoptium) or JDK entries
+    $regPaths = @(
+        'HKLM:\SOFTWARE\Eclipse Adoptium\JRE',
+        'HKLM:\SOFTWARE\Eclipse Adoptium\JDK',
+        'HKLM:\SOFTWARE\JavaSoft\JDK'
+    )
+    foreach ($reg in $regPaths) {
+        if (Test-Path $reg) {
+            Get-ChildItem $reg -ErrorAction SilentlyContinue | ForEach-Object {
+                $home = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).JavaHome
+                if ($home) {
+                    $p = Join-Path $home 'bin\java.exe'
+                    if (Test-Path $p) { $candidates += $p }
+                }
+            }
+        }
+    }
+
+    # Try each candidate - return first one that reports version 17+
+    foreach ($exe in $candidates) {
+        try {
+            $out = & $exe -version 2>&1 | Select-Object -First 1
+            if ($out -match '(?:version\s+")(\d+)') {
+                $major = [int]$Matches[1]
+                if ($major -ge 17) { return $exe }
+            }
+        } catch {}
+    }
+
+    return $null
+}
+
 function Ensure-Java {
     param(
         [object]$Reporter,
         [pscustomobject]$ProgressState
     )
 
-    $java = Get-Command java -ErrorAction SilentlyContinue
+    $java = Find-Java21
     if ($java) {
         Invoke-ReporterProgress -Reporter $Reporter -Percent $ProgressState.Percent -State ([pscustomobject]@{
             status = "Java найдена"
-            log = "Java уже установлена: $($java.Source)"
+            log = "Java 17+ найдена: $java"
         })
-        return
+        return $java
     }
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $ProgressState.Percent -State ([pscustomobject]@{
-        status = "Installing Java"
-        log = "Java not found. Installing Temurin 21 via winget..."
+        status = "Установка Java"
+        log = "Java 17+ не найдена. Устанавливаем Temurin 21 через winget..."
     })
 
     $winget = Get-Command winget -ErrorAction SilentlyContinue
@@ -133,17 +192,29 @@ function Ensure-Java {
         throw "winget не найден. Установите App Installer из Microsoft Store и запустите снова."
     }
 
-    $args = @(
+    $installArgs = @(
         "install",
         "--id", "EclipseAdoptium.Temurin.21.JRE",
         "--accept-package-agreements",
         "--accept-source-agreements",
         "--silent"
     )
-    $proc = Start-Process -FilePath "winget" -ArgumentList $args -PassThru -Wait
+    $proc = Start-Process -FilePath "winget" -ArgumentList $installArgs -PassThru -Wait
     if ($proc.ExitCode -ne 0) {
         throw "Установка Java завершилась с ошибкой: код $($proc.ExitCode)"
     }
+
+    # Re-discover after install (PATH may not update in current process)
+    $java = Find-Java21
+    if (-not $java) {
+        # Fallback: glob for newly installed Temurin
+        $java = Get-ChildItem 'C:\Program Files\Eclipse Adoptium' -Recurse -Filter 'java.exe' -ErrorAction SilentlyContinue |
+                Select-Object -First 1 -ExpandProperty FullName
+    }
+    if (-not $java) {
+        throw "Java установлена, но исполняемый файл не найден. Перезапустите лаунчер."
+    }
+    return $java
 }
 
 function Ensure-NeoForge {
@@ -173,20 +244,27 @@ function Ensure-NeoForge {
 
     $installerPath = Join-Path $tmpDir "neoforge-installer.jar"
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-        status = "Downloading NeoForge"
-        log = "Downloading NeoForge installer: $($Manifest.neoforge.version)"
+        status = "Загрузка NeoForge"
+        log = "Скачиваем установщик NeoForge: $($Manifest.neoforge.version)"
     })
     Invoke-WebRequest -Uri $Manifest.neoforge.installer_url -OutFile $installerPath
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-        status = "Installing NeoForge"
-        log = "Installing NeoForge into portable game directory"
+        status = "Установка NeoForge"
+        log = "Устанавливаем NeoForge в портативную директорию"
+    })
+
+    # Use the same Java 17+ that was selected for this session (stored in script-scope)
+    $javaExe = if ($script:JavaExe -and (Test-Path $script:JavaExe)) { $script:JavaExe } else { 'java' }
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
+        status = "Установка NeoForge"
+        log = "Используем Java: $javaExe"
     })
 
     $arguments = @("-jar", $installerPath, "--install-client", $script:GameRoot)
-    $proc = Start-Process -FilePath "java" -ArgumentList $arguments -Wait -PassThru
+    $proc = Start-Process -FilePath $javaExe -ArgumentList $arguments -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
-        throw "Установщик NeoForge завершился с ошибкой: код $($proc.ExitCode)"
+        throw "Установщик NeoForge завершился с ошибкой: код $($proc.ExitCode). Убедитесь, что установлена Java 17+ (Temurin 21)."
     }
 
     if (-not (Test-Path $targetDir)) {
@@ -728,7 +806,7 @@ function Invoke-ClientFlow {
         Ensure-Directory -Path $script:GameRoot
 
         & $reporter.ReportProgress 18 ([pscustomobject]@{ status = "Проверка Java"; log = "Проверяем Java Runtime" })
-        Ensure-Java -Reporter $reporter -ProgressState ([pscustomobject]@{ Percent = 22 })
+        $script:JavaExe = Ensure-Java -Reporter $reporter -ProgressState ([pscustomobject]@{ Percent = 22 })
 
         & $reporter.ReportProgress 30 ([pscustomobject]@{ status = "Проверка NeoForge"; log = "Проверяем портативный экземпляр NeoForge" })
         $versionId = Ensure-NeoForge -Manifest $manifest -Reporter $reporter -Percent 38
