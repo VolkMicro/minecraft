@@ -1,7 +1,7 @@
 param(
     [string]$ManifestUrl  = "http://95.105.73.172:8088/manifest.json",
     [string]$ServerStatus = "https://api.mcsrvstat.us/3/95.105.73.172:25565",
-    [string]$LauncherVersion = "1.2.0",
+    [string]$LauncherVersion = "2.0.0",
     [switch]$NoLauncherStart
 )
 
@@ -11,10 +11,25 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
+$script:PortableRoot = Join-Path $env:LOCALAPPDATA "MinecraftTechLauncher"
+$script:HMCLBinDir = Join-Path $script:PortableRoot "hmcl"
+$script:HMCLExe = Join-Path $script:HMCLBinDir "HMCL.exe"
+$script:HMCLDataDir = Join-Path $script:PortableRoot ".hmcl"
+$script:HMCLHomeDir = Join-Path $script:PortableRoot ".hmcl-home"
+$script:HMCLConfigPath = Join-Path $script:HMCLDataDir "hmcl.json"
+$script:HMCLGlobalConfigPath = Join-Path $script:HMCLHomeDir "config.json"
+$script:HMCLVersionMarker = Join-Path $script:HMCLBinDir "hmcl-release.txt"
+$script:GameRoot = Join-Path $script:PortableRoot "game"
+
 function Get-FileSHA512 {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return $null }
     return (Get-FileHash -Path $Path -Algorithm SHA512).Hash.ToLowerInvariant()
+}
+
+function Ensure-Directory {
+    param([string]$Path)
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
 }
 
 function Invoke-ReporterProgress {
@@ -38,6 +53,59 @@ function Invoke-ReporterProgress {
     }
 
     throw 'Reporter does not support progress updates.'
+}
+
+function Get-DefaultPlayerName {
+    $raw = if ($script:ui -and $script:ui.PlayerNameBox.Text) {
+        $script:ui.PlayerNameBox.Text
+    }
+    elseif ($env:USERNAME) {
+        $env:USERNAME
+    }
+    else {
+        "Player"
+    }
+
+    $safe = ($raw -replace '[^A-Za-z0-9_]', '')
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        $safe = "Player"
+    }
+    if ($safe.Length -gt 16) {
+        $safe = $safe.Substring(0, 16)
+    }
+    return $safe
+}
+
+function Get-OfflinePlayerUuid {
+    param([string]$PlayerName)
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes("OfflinePlayer:$PlayerName")
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    try {
+        $hash = $md5.ComputeHash($bytes)
+    }
+    finally {
+        $md5.Dispose()
+    }
+
+    $hash[6] = ($hash[6] -band 0x0f) -bor 0x30
+    $hash[8] = ($hash[8] -band 0x3f) -bor 0x80
+
+    $hex = ($hash | ForEach-Object { $_.ToString('x2') }) -join ''
+    return "{0}-{1}-{2}-{3}-{4}" -f $hex.Substring(0, 8), $hex.Substring(8, 4), $hex.Substring(12, 4), $hex.Substring(16, 4), $hex.Substring(20, 12)
+}
+
+function Get-TargetVersionId {
+    param([pscustomobject]$Manifest)
+    return "neoforge-$($Manifest.neoforge.version)"
+}
+
+function Get-PackProfileName {
+    param([pscustomobject]$Manifest)
+    if ($Manifest.pack -and $Manifest.pack.name) {
+        return [string]$Manifest.pack.name
+    }
+    return "Create Aeronautics Pack"
 }
 
 function Ensure-Java {
@@ -85,22 +153,23 @@ function Ensure-NeoForge {
         [int]$Percent
     )
 
-    $mcRoot = Join-Path $env:APPDATA ".minecraft"
-    $versionsDir = Join-Path $mcRoot "versions"
-    $targetVersion = "neoforge-$($Manifest.neoforge.version)"
+    $versionsDir = Join-Path $script:GameRoot "versions"
+    $targetVersion = Get-TargetVersionId -Manifest $Manifest
     $targetDir = Join-Path $versionsDir $targetVersion
 
     if (Test-Path $targetDir) {
         Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
             status = "NeoForge ready"
-            log = "NeoForge already installed: $targetVersion"
+            log = "NeoForge already installed in portable pack: $targetVersion"
         })
-        return
+        return $targetVersion
     }
 
-    New-Item -ItemType Directory -Force -Path $versionsDir | Out-Null
+    Ensure-Directory -Path $script:GameRoot
+    Ensure-Directory -Path $versionsDir
+
     $tmpDir = Join-Path $env:TEMP "mc-autoclient"
-    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+    Ensure-Directory -Path $tmpDir
 
     $installerPath = Join-Path $tmpDir "neoforge-installer.jar"
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
@@ -111,15 +180,20 @@ function Ensure-NeoForge {
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
         status = "Installing NeoForge"
-        log = "Installing NeoForge client profile"
+        log = "Installing NeoForge into portable game directory"
     })
-    $p1 = Start-Process -FilePath "java" -ArgumentList @("-jar", $installerPath, "--install-client") -Wait -PassThru
-    if ($p1.ExitCode -ne 0) {
-        $p2 = Start-Process -FilePath "java" -ArgumentList @("-jar", $installerPath, "--installClient") -Wait -PassThru
-        if ($p2.ExitCode -ne 0) {
-            throw "NeoForge installer failed: exit codes $($p1.ExitCode), $($p2.ExitCode)"
-        }
+
+    $arguments = @("-jar", $installerPath, "--install-client", $script:GameRoot)
+    $proc = Start-Process -FilePath "java" -ArgumentList $arguments -Wait -PassThru
+    if ($proc.ExitCode -ne 0) {
+        throw "NeoForge installer failed with exit code $($proc.ExitCode)"
     }
+
+    if (-not (Test-Path $targetDir)) {
+        throw "NeoForge install completed but expected version directory is missing: $targetDir"
+    }
+
+    return $targetVersion
 }
 
 function Sync-Mods {
@@ -130,17 +204,17 @@ function Sync-Mods {
         [int]$EndPercent
     )
 
-    $modsDir = Join-Path $env:APPDATA ".minecraft\mods"
-    New-Item -ItemType Directory -Force -Path $modsDir | Out-Null
+    $modsDir = Join-Path $script:GameRoot "mods"
+    Ensure-Directory -Path $modsDir
 
     $expected = @{}
-    foreach ($m in $Manifest.mods) {
-        $expected[$m.filename] = $m
+    foreach ($mod in $Manifest.mods) {
+        $expected[$mod.filename] = $mod
     }
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $StartPercent -State ([pscustomobject]@{
         status = "Preparing mods"
-        log = "Removing old mods not present in current pack"
+        log = "Removing stale mods from portable pack"
     })
 
     Get-ChildItem $modsDir -Filter "*.jar" -ErrorAction SilentlyContinue | ForEach-Object {
@@ -150,119 +224,191 @@ function Sync-Mods {
     }
 
     $total = [Math]::Max(1, $Manifest.mods.Count)
-    $idx = 0
+    $index = 0
 
-    foreach ($m in $Manifest.mods) {
-        $idx++
+    foreach ($mod in $Manifest.mods) {
+        $index++
         $segment = [double]($EndPercent - $StartPercent)
-        $pct = [int]($StartPercent + (($idx / $total) * $segment))
-
-        $target = Join-Path $modsDir $m.filename
+        $pct = [int]($StartPercent + (($index / $total) * $segment))
+        $target = Join-Path $modsDir $mod.filename
         $needDownload = $true
 
         if (Test-Path $target) {
             $hash = Get-FileSHA512 -Path $target
-            if ($hash -eq $m.sha512) {
+            if ($hash -eq $mod.sha512) {
                 $needDownload = $false
             }
         }
 
         if ($needDownload) {
             Invoke-ReporterProgress -Reporter $Reporter -Percent $pct -State ([pscustomobject]@{
-                status = "Syncing mods ($idx/$total)"
-                log = "Downloading $($m.filename)"
+                status = "Syncing mods ($index/$total)"
+                log = "Downloading $($mod.filename)"
             })
-            Invoke-WebRequest -Uri $m.url -OutFile $target
+            Invoke-WebRequest -Uri $mod.url -OutFile $target
             $hash = Get-FileSHA512 -Path $target
-            if ($hash -ne $m.sha512) {
-                throw "Checksum mismatch after download: $($m.filename)"
+            if ($hash -ne $mod.sha512) {
+                throw "Checksum mismatch after download: $($mod.filename)"
             }
         }
         else {
             Invoke-ReporterProgress -Reporter $Reporter -Percent $pct -State ([pscustomobject]@{
-                status = "Syncing mods ($idx/$total)"
-                log = "Up-to-date: $($m.filename)"
+                status = "Syncing mods ($index/$total)"
+                log = "Up-to-date: $($mod.filename)"
             })
         }
     }
 }
 
-function Find-LauncherPath {
-    $candidates = @(
-        "$env:LOCALAPPDATA\Programs\TLauncher\TLauncher.exe",
-        "$env:ProgramFiles\TLauncher\TLauncher.exe",
-        "$env:ProgramFiles(x86)\TLauncher\TLauncher.exe"
-    )
+function Get-HMCLDownloadInfo {
+    param([pscustomobject]$Manifest)
 
-    foreach ($p in $candidates) {
-        if (Test-Path $p) { return $p }
+    $defaultUrl = "https://github.com/HMCL-dev/HMCL/releases/download/release-3.12.4/HMCL-3.12.4.exe"
+    $defaultVersion = "3.12.4"
+
+    return [pscustomobject]@{
+        Url = if ($Manifest.launcher -and $Manifest.launcher.hmcl_download_url) { [string]$Manifest.launcher.hmcl_download_url } else { $defaultUrl }
+        Version = if ($Manifest.launcher -and $Manifest.launcher.hmcl_version) { [string]$Manifest.launcher.hmcl_version } else { $defaultVersion }
     }
-    return $null
 }
 
-function Find-UnsupportedOfficialLauncherPath {
-    $candidates = @(
-        "$env:LOCALAPPDATA\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\game\MinecraftLauncher.exe",
-        "$env:ProgramFiles\Minecraft Launcher\MinecraftLauncher.exe",
-        "$env:ProgramFiles(x86)\Minecraft Launcher\MinecraftLauncher.exe"
-    )
-
-    foreach ($p in $candidates) {
-        if (Test-Path $p) { return $p }
-    }
-    return $null
-}
-
-function Ensure-TLauncher {
+function Ensure-HMCL {
     param(
         [pscustomobject]$Manifest,
         [object]$Reporter,
         [int]$Percent
     )
 
-    $launcher = Find-LauncherPath
-    if ($launcher) {
-        Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-            status = "Launcher ready"
-            log = "Launcher found: $launcher"
-        })
-        return $launcher
+    Ensure-Directory -Path $script:PortableRoot
+    Ensure-Directory -Path $script:HMCLBinDir
+    Ensure-Directory -Path $script:HMCLDataDir
+    Ensure-Directory -Path $script:HMCLHomeDir
+
+    $downloadInfo = Get-HMCLDownloadInfo -Manifest $Manifest
+    $installedVersion = if (Test-Path $script:HMCLVersionMarker) {
+        (Get-Content $script:HMCLVersionMarker -ErrorAction SilentlyContinue | Select-Object -First 1)
+    }
+    else {
+        $null
     }
 
-    $officialLauncher = Find-UnsupportedOfficialLauncherPath
-    if ($officialLauncher) {
+    if ((Test-Path $script:HMCLExe) -and $installedVersion -eq $downloadInfo.Version) {
         Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-            status = "Selecting launcher"
-            log = "Official Minecraft Launcher detected but ignored: $officialLauncher"
+            status = "HMCL ready"
+            log = "HMCL already installed: $installedVersion"
         })
-        Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-            status = "Selecting launcher"
-            log = "Reason: it pulls vanilla/default versions and does not reliably launch this NeoForge pack."
-        })
-    }
-
-    $url = $Manifest.launcher.tlauncher_installer_url
-    if (-not $url) {
-        return $null
+        return $script:HMCLExe
     }
 
     $tmpDir = Join-Path $env:TEMP "mc-autoclient"
-    New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
-    $installer = Join-Path $tmpDir "tlauncher-installer.exe"
+    Ensure-Directory -Path $tmpDir
+    $downloadPath = Join-Path $tmpDir "HMCL.exe"
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-        status = "Installing launcher"
-        log = "Downloading TLauncher installer"
+        status = "Downloading HMCL"
+        log = "Downloading HMCL portable $($downloadInfo.Version)"
     })
-    Invoke-WebRequest -Uri $url -OutFile $installer
+    Invoke-WebRequest -Uri $downloadInfo.Url -OutFile $downloadPath
+
+    Copy-Item -Path $downloadPath -Destination $script:HMCLExe -Force
+    Set-Content -Path $script:HMCLVersionMarker -Value $downloadInfo.Version -Encoding UTF8
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-        status = "Installing launcher"
-        log = "Running TLauncher installer"
+        status = "HMCL ready"
+        log = "HMCL updated to $($downloadInfo.Version)"
     })
-    Start-Process -FilePath $installer -Wait
 
-    return (Find-LauncherPath)
+    return $script:HMCLExe
+}
+
+function Write-HMCLConfig {
+    param(
+        [pscustomobject]$Manifest,
+        [string]$VersionId,
+        [int]$RamMb,
+        [string]$PlayerName
+    )
+
+    Ensure-Directory -Path $script:HMCLDataDir
+    Ensure-Directory -Path $script:HMCLHomeDir
+    Ensure-Directory -Path $script:GameRoot
+
+    $profileName = Get-PackProfileName -Manifest $Manifest
+    $playerUuid = Get-OfflinePlayerUuid -PlayerName $PlayerName
+    $serverAddress = if ($Manifest.pack -and $Manifest.pack.server_address) { [string]$Manifest.pack.server_address } else { "95.105.73.172:25565" }
+
+    $globalConfig = [ordered]@{
+        agreementVersion = 0
+        terracottaAgreementVersion = 0
+        platformPromptVersion = 0
+        logRetention = 20
+        enableOfflineAccount = $true
+        userJava = @()
+        disabledJava = @()
+    }
+
+    $config = [ordered]@{
+        _version = 2
+        uiVersion = 0
+        commonDirType = 1
+        commonpath = $script:GameRoot
+        preferredLoginType = "offline"
+        selectedAccount = "$PlayerName:$PlayerName"
+        accounts = @(
+            [ordered]@{
+                type = "offline"
+                username = $PlayerName
+                uuid = $playerUuid
+                skin = [ordered]@{
+                    type = "default"
+                    cslApi = $null
+                    textureModel = "default"
+                    localSkinPath = $null
+                    localCapePath = $null
+                }
+            }
+        )
+        last = $profileName
+        configurations = [ordered]@{}
+    }
+
+    $config.configurations[$profileName] = [ordered]@{
+        global = [ordered]@{
+            usesGlobal = $true
+            maxMemory = $RamMb
+            autoMemory = $false
+            serverIp = $serverAddress
+            width = 1280
+            height = 720
+            java = "Auto"
+            javaVersionType = "AUTO"
+            gameDirType = 0
+            launcherVisibility = 0
+            showLogs = $false
+        }
+        gameDir = $script:GameRoot
+        useRelativePath = $false
+        selectedMinecraftVersion = $VersionId
+    }
+
+    $globalConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $script:HMCLGlobalConfigPath -Encoding UTF8
+    $config | ConvertTo-Json -Depth 10 | Set-Content -Path $script:HMCLConfigPath -Encoding UTF8
+}
+
+function Start-HMCL {
+    param([string]$ExecutablePath)
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $ExecutablePath
+    $psi.WorkingDirectory = Split-Path $ExecutablePath -Parent
+    $psi.UseShellExecute = $false
+    $psi.EnvironmentVariables['HMCL_LOCAL_HOME'] = $script:HMCLDataDir
+    $psi.EnvironmentVariables['HMCL_USER_HOME'] = $script:HMCLHomeDir
+
+    $process = [System.Diagnostics.Process]::Start($psi)
+    if (-not $process) {
+        throw "Failed to start HMCL."
+    }
 }
 
 function New-UiReporter {
@@ -285,225 +431,225 @@ function New-UiReporter {
     }
 }
 
-# --- Colour palette ----------------------------------
 $C = @{
     Bg         = [System.Drawing.Color]::FromArgb(10, 14, 22)
-    HeaderTop  = [System.Drawing.Color]::FromArgb(8,  18, 35)
+    HeaderTop  = [System.Drawing.Color]::FromArgb(8, 18, 35)
     HeaderBot  = [System.Drawing.Color]::FromArgb(14, 30, 55)
     Accent     = [System.Drawing.Color]::FromArgb(14, 165, 233)
-    AccentDark = [System.Drawing.Color]::FromArgb(7,  89, 133)
+    AccentDark = [System.Drawing.Color]::FromArgb(7, 89, 133)
     TextPrim   = [System.Drawing.Color]::FromArgb(226, 232, 240)
     TextMuted  = [System.Drawing.Color]::FromArgb(100, 116, 139)
-    TextGreen  = [System.Drawing.Color]::FromArgb(74,  222, 128)
+    TextGreen  = [System.Drawing.Color]::FromArgb(74, 222, 128)
     TextRed    = [System.Drawing.Color]::FromArgb(248, 113, 113)
-    TextYellow = [System.Drawing.Color]::FromArgb(234, 179,   8)
-    Panel      = [System.Drawing.Color]::FromArgb(15,  23,  42)
-    LogBg      = [System.Drawing.Color]::FromArgb( 7,  12,  20)
-    BtnSub     = [System.Drawing.Color]::FromArgb(30,  41,  59)
+    Panel      = [System.Drawing.Color]::FromArgb(15, 23, 42)
+    LogBg      = [System.Drawing.Color]::FromArgb(7, 12, 20)
+    BtnSub     = [System.Drawing.Color]::FromArgb(30, 41, 59)
 }
 
-# --- Generate server banner image via GDI+ -----------
 function New-BannerBitmap {
-    $W = 860; $H = 110
-    $bmp = New-Object System.Drawing.Bitmap($W, $H)
-    $g   = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode    = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+    $width = 860
+    $height = 110
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
 
-    # Background gradient
-    $gbrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
-        (New-Object System.Drawing.Rectangle(0,0,$W,$H)),
+    $backgroundBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+        (New-Object System.Drawing.Rectangle(0, 0, $width, $height)),
         [System.Drawing.Color]::FromArgb(8, 18, 38),
         [System.Drawing.Color]::FromArgb(16, 32, 62),
         [System.Drawing.Drawing2D.LinearGradientMode]::BackwardDiagonal)
-    $g.FillRectangle($gbrush, 0, 0, $W, $H)
-    $gbrush.Dispose()
+    $graphics.FillRectangle($backgroundBrush, 0, 0, $width, $height)
+    $backgroundBrush.Dispose()
 
-    # Decorative diagonal stripes (subtle)
     $stripePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(12, 100, 180, 255))
-    $stripePen.Width = 1.0
-    for ($x = -$H; $x -lt $W; $x += 36) {
-        $g.DrawLine($stripePen, $x, 0, $x + $H, $H)
+    for ($x = -$height; $x -lt $width; $x += 36) {
+        $graphics.DrawLine($stripePen, $x, 0, $x + $height, $height)
     }
     $stripePen.Dispose()
 
-    # Accent bottom border line
-    $accentPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(14, 165, 233))
+    $accentPen = New-Object System.Drawing.Pen($C.Accent)
     $accentPen.Width = 2.0
-    $g.DrawLine($accentPen, 0, $H - 2, $W, $H - 2)
+    $graphics.DrawLine($accentPen, 0, $height - 2, $width, $height - 2)
     $accentPen.Dispose()
 
-    # Left colour bar
-    $barBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(14, 165, 233))
-    $g.FillRectangle($barBrush, 0, 0, 4, $H)
+    $barBrush = New-Object System.Drawing.SolidBrush($C.Accent)
+    $graphics.FillRectangle($barBrush, 0, 0, 4, $height)
     $barBrush.Dispose()
 
-    # Title text
-    $fontTitle = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
-    $brushTitle = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(240, 248, 255))
-    $g.DrawString("Create Aeronautics  -  Tech Industrial Server", $fontTitle, $brushTitle, 18, 12)
-    $fontTitle.Dispose(); $brushTitle.Dispose()
+    $titleFont = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
+    $titleBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(240, 248, 255))
+    $graphics.DrawString("Create Aeronautics  -  HMCL Portable Client", $titleFont, $titleBrush, 18, 12)
+    $titleFont.Dispose()
+    $titleBrush.Dispose()
 
-    # Subtitle text
-    $fontSub = New-Object System.Drawing.Font("Segoe UI", 9.5)
-    $brushSub = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(148, 163, 184))
-    $g.DrawString("NeoForge 1.21.1  -  Industrial automation, flying machines, tech progression, shared exploration", $fontSub, $brushSub, 18, 54)
-    $fontSub.Dispose(); $brushSub.Dispose()
+    $subtitleFont = New-Object System.Drawing.Font("Segoe UI", 9.5)
+    $subtitleBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(148, 163, 184))
+    $graphics.DrawString("Dedicated pack root, offline account, NeoForge 1.21.1, exact mod sync, HMCL instance bootstrap", $subtitleFont, $subtitleBrush, 18, 54)
+    $subtitleFont.Dispose()
+    $subtitleBrush.Dispose()
 
-    # Version label bottom-right
-    $fontVer = New-Object System.Drawing.Font("Segoe UI", 8)
-    $brushVer = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(71, 85, 105))
-    $verStr = "Launcher v$LauncherVersion"
-    $sz = $g.MeasureString($verStr, $fontVer)
-    $g.DrawString($verStr, $fontVer, $brushVer, ($W - $sz.Width - 10), ($H - $sz.Height - 6))
-    $fontVer.Dispose(); $brushVer.Dispose()
+    $versionFont = New-Object System.Drawing.Font("Segoe UI", 8)
+    $versionBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(71, 85, 105))
+    $versionText = "Launcher v$LauncherVersion"
+    $size = $graphics.MeasureString($versionText, $versionFont)
+    $graphics.DrawString($versionText, $versionFont, $versionBrush, ($width - $size.Width - 10), ($height - $size.Height - 6))
+    $versionFont.Dispose()
+    $versionBrush.Dispose()
 
-    $g.Dispose()
-    return $bmp
+    $graphics.Dispose()
+    return $bitmap
 }
 
-# --- Build the main form ------------------------------
 function New-LauncherUi {
-
     $form = New-Object System.Windows.Forms.Form
-    $form.Text              = "Minecraft Tech Launcher  v$LauncherVersion"
-    $form.StartPosition     = "CenterScreen"
-    $form.Size              = New-Object System.Drawing.Size(880, 660)
-    $form.FormBorderStyle   = "FixedSingle"
-    $form.MaximizeBox       = $false
-    $form.BackColor         = $C.Bg
+    $form.Text = "Minecraft Tech Launcher  v$LauncherVersion"
+    $form.StartPosition = "CenterScreen"
+    $form.Size = New-Object System.Drawing.Size(880, 660)
+    $form.FormBorderStyle = "FixedSingle"
+    $form.MaximizeBox = $false
+    $form.BackColor = $C.Bg
 
-    # -- Banner PictureBox --
     $banner = New-Object System.Windows.Forms.PictureBox
-    $banner.Location        = New-Object System.Drawing.Point(0, 0)
-    $banner.Size            = New-Object System.Drawing.Size(880, 110)
-    $banner.SizeMode        = "StretchImage"
-    $banner.Image           = New-BannerBitmap
+    $banner.Location = New-Object System.Drawing.Point(0, 0)
+    $banner.Size = New-Object System.Drawing.Size(880, 110)
+    $banner.SizeMode = "StretchImage"
+    $banner.Image = New-BannerBitmap
     $form.Controls.Add($banner)
 
-    # -- Server status row --
     $srvPanel = New-Object System.Windows.Forms.Panel
-    $srvPanel.Location      = New-Object System.Drawing.Point(0, 110)
-    $srvPanel.Size          = New-Object System.Drawing.Size(880, 36)
-    $srvPanel.BackColor     = $C.Panel
+    $srvPanel.Location = New-Object System.Drawing.Point(0, 110)
+    $srvPanel.Size = New-Object System.Drawing.Size(880, 36)
+    $srvPanel.BackColor = $C.Panel
 
     $srvDot = New-Object System.Windows.Forms.Panel
-    $srvDot.BackColor       = $C.TextMuted
-    $srvDot.Location        = New-Object System.Drawing.Point(16, 12)
-    $srvDot.Size            = New-Object System.Drawing.Size(10, 10)
+    $srvDot.BackColor = $C.TextMuted
+    $srvDot.Location = New-Object System.Drawing.Point(16, 12)
+    $srvDot.Size = New-Object System.Drawing.Size(10, 10)
 
     $srvLabel = New-Object System.Windows.Forms.Label
-    $srvLabel.Text          = "Server: checking..."
-    $srvLabel.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
-    $srvLabel.ForeColor     = $C.TextMuted
-    $srvLabel.Location      = New-Object System.Drawing.Point(34, 9)
-    $srvLabel.Size          = New-Object System.Drawing.Size(400, 18)
+    $srvLabel.Text = "Server: checking..."
+    $srvLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $srvLabel.ForeColor = $C.TextMuted
+    $srvLabel.Location = New-Object System.Drawing.Point(34, 9)
+    $srvLabel.Size = New-Object System.Drawing.Size(400, 18)
 
     $srvRefreshBtn = New-Object System.Windows.Forms.Button
-    $srvRefreshBtn.Text     = "Refresh"
-    $srvRefreshBtn.Font     = New-Object System.Drawing.Font("Segoe UI", 10)
+    $srvRefreshBtn.Text = "Refresh"
+    $srvRefreshBtn.Font = New-Object System.Drawing.Font("Segoe UI", 10)
     $srvRefreshBtn.FlatStyle = "Flat"
     $srvRefreshBtn.FlatAppearance.BorderSize = 0
     $srvRefreshBtn.BackColor = $C.Panel
     $srvRefreshBtn.ForeColor = $C.TextMuted
-    $srvRefreshBtn.Location  = New-Object System.Drawing.Point(450, 4)
-    $srvRefreshBtn.Size      = New-Object System.Drawing.Size(78, 28)
+    $srvRefreshBtn.Location = New-Object System.Drawing.Point(450, 4)
+    $srvRefreshBtn.Size = New-Object System.Drawing.Size(78, 28)
 
     $srvPanel.Controls.AddRange(@($srvDot, $srvLabel, $srvRefreshBtn))
     $form.Controls.Add($srvPanel)
 
-    # -- Status + progress --
     $statusLabel = New-Object System.Windows.Forms.Label
-    $statusLabel.Text       = "Ready"
-    $statusLabel.Font       = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
-    $statusLabel.ForeColor  = $C.Accent
-    $statusLabel.Location   = New-Object System.Drawing.Point(14, 155)
-    $statusLabel.Size       = New-Object System.Drawing.Size(700, 20)
+    $statusLabel.Text = "Ready"
+    $statusLabel.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
+    $statusLabel.ForeColor = $C.Accent
+    $statusLabel.Location = New-Object System.Drawing.Point(14, 155)
+    $statusLabel.Size = New-Object System.Drawing.Size(760, 20)
 
     $progress = New-Object System.Windows.Forms.ProgressBar
-    $progress.Location      = New-Object System.Drawing.Point(14, 178)
-    $progress.Size          = New-Object System.Drawing.Size(848, 20)
-    $progress.Minimum       = 0
-    $progress.Maximum       = 100
+    $progress.Location = New-Object System.Drawing.Point(14, 178)
+    $progress.Size = New-Object System.Drawing.Size(848, 20)
+    $progress.Minimum = 0
+    $progress.Maximum = 100
 
-    # -- Log box --
     $log = New-Object System.Windows.Forms.TextBox
-    $log.Multiline          = $true
-    $log.ScrollBars         = "Vertical"
-    $log.ReadOnly           = $true
-    $log.Font               = New-Object System.Drawing.Font("Consolas", 9.5)
-    $log.BackColor          = $C.LogBg
-    $log.ForeColor          = $C.TextPrim
-    $log.BorderStyle        = "FixedSingle"
-    $log.Location           = New-Object System.Drawing.Point(14, 206)
-    $log.Size               = New-Object System.Drawing.Size(848, 360)
+    $log.Multiline = $true
+    $log.ScrollBars = "Vertical"
+    $log.ReadOnly = $true
+    $log.Font = New-Object System.Drawing.Font("Consolas", 9.5)
+    $log.BackColor = $C.LogBg
+    $log.ForeColor = $C.TextPrim
+    $log.BorderStyle = "FixedSingle"
+    $log.Location = New-Object System.Drawing.Point(14, 206)
+    $log.Size = New-Object System.Drawing.Size(848, 360)
 
-    # -- Settings row --
+    $playerLabel = New-Object System.Windows.Forms.Label
+    $playerLabel.Text = "Nick:"
+    $playerLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $playerLabel.ForeColor = $C.TextMuted
+    $playerLabel.Location = New-Object System.Drawing.Point(14, 580)
+    $playerLabel.Size = New-Object System.Drawing.Size(40, 24)
+
+    $playerBox = New-Object System.Windows.Forms.TextBox
+    $playerBox.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $playerBox.BackColor = $C.BtnSub
+    $playerBox.ForeColor = $C.TextPrim
+    $playerBox.BorderStyle = "FixedSingle"
+    $playerBox.Location = New-Object System.Drawing.Point(58, 576)
+    $playerBox.Size = New-Object System.Drawing.Size(140, 26)
+    $playerBox.Text = Get-DefaultPlayerName
+
     $ramLabel = New-Object System.Windows.Forms.Label
-    $ramLabel.Text          = "RAM:"
-    $ramLabel.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
-    $ramLabel.ForeColor     = $C.TextMuted
-    $ramLabel.Location      = New-Object System.Drawing.Point(14, 580)
-    $ramLabel.Size          = New-Object System.Drawing.Size(36, 24)
+    $ramLabel.Text = "RAM:"
+    $ramLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $ramLabel.ForeColor = $C.TextMuted
+    $ramLabel.Location = New-Object System.Drawing.Point(214, 580)
+    $ramLabel.Size = New-Object System.Drawing.Size(36, 24)
 
     $ramCombo = New-Object System.Windows.Forms.ComboBox
-    $ramCombo.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
-    $ramCombo.FlatStyle     = "Flat"
-    $ramCombo.BackColor     = $C.BtnSub
-    $ramCombo.ForeColor     = $C.TextPrim
+    $ramCombo.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $ramCombo.FlatStyle = "Flat"
+    $ramCombo.BackColor = $C.BtnSub
+    $ramCombo.ForeColor = $C.TextPrim
     $ramCombo.DropDownStyle = "DropDownList"
-    $ramCombo.Location      = New-Object System.Drawing.Point(52, 576)
-    $ramCombo.Size          = New-Object System.Drawing.Size(90, 26)
+    $ramCombo.Location = New-Object System.Drawing.Point(252, 576)
+    $ramCombo.Size = New-Object System.Drawing.Size(90, 26)
     @("2 GB","3 GB","4 GB","6 GB","8 GB","12 GB","16 GB") | ForEach-Object { [void]$ramCombo.Items.Add($_) }
-    $ramCombo.SelectedIndex = 2  # default 4 GB
+    $ramCombo.SelectedIndex = 2
 
-    # -- Buttons --
     $playBtn = New-Object System.Windows.Forms.Button
-    $playBtn.Text           = "Play"
-    $playBtn.Font           = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
-    $playBtn.BackColor      = $C.AccentDark
-    $playBtn.ForeColor      = [System.Drawing.Color]::White
-    $playBtn.FlatStyle      = "Flat"
+    $playBtn.Text = "Prepare and Open HMCL"
+    $playBtn.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
+    $playBtn.BackColor = $C.AccentDark
+    $playBtn.ForeColor = [System.Drawing.Color]::White
+    $playBtn.FlatStyle = "Flat"
     $playBtn.FlatAppearance.BorderColor = $C.Accent
-    $playBtn.Location       = New-Object System.Drawing.Point(14, 574)
-    $playBtn.Size           = New-Object System.Drawing.Size(0, 36)  # hidden width until RAM moves
-    $playBtn.Location       = New-Object System.Drawing.Point(154, 574)
-    $playBtn.Size           = New-Object System.Drawing.Size(160, 36)
+    $playBtn.Location = New-Object System.Drawing.Point(360, 574)
+    $playBtn.Size = New-Object System.Drawing.Size(190, 36)
 
     $updateBtn = New-Object System.Windows.Forms.Button
-    $updateBtn.Text         = "Update Only"
-    $updateBtn.Font         = New-Object System.Drawing.Font("Segoe UI", 9)
-    $updateBtn.BackColor    = $C.BtnSub
-    $updateBtn.ForeColor    = $C.TextPrim
-    $updateBtn.FlatStyle    = "Flat"
+    $updateBtn.Text = "Update Pack Only"
+    $updateBtn.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $updateBtn.BackColor = $C.BtnSub
+    $updateBtn.ForeColor = $C.TextPrim
+    $updateBtn.FlatStyle = "Flat"
     $updateBtn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
-    $updateBtn.Location     = New-Object System.Drawing.Point(324, 574)
-    $updateBtn.Size         = New-Object System.Drawing.Size(140, 36)
+    $updateBtn.Location = New-Object System.Drawing.Point(562, 574)
+    $updateBtn.Size = New-Object System.Drawing.Size(140, 36)
 
     $closeBtn = New-Object System.Windows.Forms.Button
-    $closeBtn.Text          = "Close"
-    $closeBtn.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
-    $closeBtn.BackColor     = $C.Bg
-    $closeBtn.ForeColor     = $C.TextMuted
-    $closeBtn.FlatStyle     = "Flat"
+    $closeBtn.Text = "Close"
+    $closeBtn.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $closeBtn.BackColor = $C.Bg
+    $closeBtn.ForeColor = $C.TextMuted
+    $closeBtn.FlatStyle = "Flat"
     $closeBtn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
-    $closeBtn.Location      = New-Object System.Drawing.Point(754, 574)
-    $closeBtn.Size          = New-Object System.Drawing.Size(108, 36)
+    $closeBtn.Location = New-Object System.Drawing.Point(754, 574)
+    $closeBtn.Size = New-Object System.Drawing.Size(108, 36)
     $closeBtn.Add_Click({ $form.Close() })
 
-    $form.Controls.AddRange(@($statusLabel, $progress, $log, $ramLabel, $ramCombo, $playBtn, $updateBtn, $closeBtn))
+    $form.Controls.AddRange(@($statusLabel, $progress, $log, $playerLabel, $playerBox, $ramLabel, $ramCombo, $playBtn, $updateBtn, $closeBtn))
 
     return [pscustomobject]@{
-        Form         = $form
-        SrvDot       = $srvDot
-        SrvLabel     = $srvLabel
-        SrvRefresh   = $srvRefreshBtn
-        Status       = $statusLabel
-        Progress     = $progress
-        Log          = $log
-        RamCombo     = $ramCombo
-        PlayButton   = $playBtn
-        UpdateButton = $updateBtn
+        Form          = $form
+        SrvDot        = $srvDot
+        SrvLabel      = $srvLabel
+        SrvRefresh    = $srvRefreshBtn
+        Status        = $statusLabel
+        Progress      = $progress
+        Log           = $log
+        PlayerNameBox = $playerBox
+        RamCombo      = $ramCombo
+        PlayButton    = $playBtn
+        UpdateButton  = $updateBtn
     }
 }
 
@@ -515,50 +661,49 @@ function Add-LogLine {
     $Log.ScrollToCaret()
 }
 
-# --- Server status async check ------------------------
 function Update-ServerStatus {
-    $dot   = $script:ui.SrvDot
+    $dot = $script:ui.SrvDot
     $label = $script:ui.SrvLabel
 
     try {
-        $r = Invoke-RestMethod -Uri $script:ServerStatus -TimeoutSec 6 -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri $script:ServerStatus -TimeoutSec 6 -ErrorAction Stop
     }
     catch {
-        $r = $null
+        $response = $null
     }
 
-    if ($r -and $r.online) {
-        $players = "$($r.players.online)/$($r.players.max)"
-        $dot.BackColor   = [System.Drawing.Color]::FromArgb(74, 222, 128)
+    if ($response -and $response.online) {
+        $players = "$($response.players.online)/$($response.players.max)"
+        $dot.BackColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
         $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-        $label.Text      = "95.105.73.172  -  Online  -  $players players"
+        $label.Text = "95.105.73.172  -  Online  -  $players players"
     }
     else {
-        $dot.BackColor   = [System.Drawing.Color]::FromArgb(248, 113, 113)
+        $dot.BackColor = [System.Drawing.Color]::FromArgb(248, 113, 113)
         $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-        $label.Text      = "95.105.73.172  -  Offline"
+        $label.Text = "95.105.73.172  -  Offline"
     }
 }
 
-# --- RAM string helper --------------------------------
-function Get-RamXmx {
+function Get-RamMb {
     param([string]$Selected)
     $map = @{
-        "2 GB"  = "2048m"
-        "3 GB"  = "3072m"
-        "4 GB"  = "4096m"
-        "6 GB"  = "6144m"
-        "8 GB"  = "8192m"
-        "12 GB" = "12288m"
-        "16 GB" = "16384m"
+        "2 GB" = 2048
+        "3 GB" = 3072
+        "4 GB" = 4096
+        "6 GB" = 6144
+        "8 GB" = 8192
+        "12 GB" = 12288
+        "16 GB" = 16384
     }
-    $v = $map[$Selected]
-    return if ($v) { $v } else { "4096m" }
+    if ($map.ContainsKey($Selected)) {
+        return $map[$Selected]
+    }
+    return 4096
 }
 
 $ui = New-LauncherUi
 
-# --- Server status timer (auto-refresh every 60 s) ---
 $srvTimer = New-Object System.Windows.Forms.Timer
 $srvTimer.Interval = 60000
 $srvTimer.Add_Tick({ Update-ServerStatus })
@@ -571,41 +716,45 @@ function Invoke-ClientFlow {
     $manifest = $null
 
     try {
+        $playerName = Get-DefaultPlayerName
+        $script:ui.PlayerNameBox.Text = $playerName
+        $ramMb = Get-RamMb -Selected $script:ui.RamCombo.SelectedItem
+
         & $reporter.ReportProgress 5 ([pscustomobject]@{ status = "Fetching manifest"; log = "Fetching manifest from $script:ManifestUrl" })
         $manifest = Invoke-RestMethod -Uri $script:ManifestUrl
 
-        & $reporter.ReportProgress 15 ([pscustomobject]@{ status = "Checking Java"; log = "Checking Java runtime" })
-        Ensure-Java -Reporter $reporter -ProgressState ([pscustomobject]@{ Percent = 20 })
+        & $reporter.ReportProgress 12 ([pscustomobject]@{ status = "Preparing pack root"; log = "Portable root: $script:PortableRoot" })
+        Ensure-Directory -Path $script:PortableRoot
+        Ensure-Directory -Path $script:GameRoot
 
-        & $reporter.ReportProgress 30 ([pscustomobject]@{ status = "Checking NeoForge"; log = "Checking NeoForge client profile" })
-        Ensure-NeoForge -Manifest $manifest -Reporter $reporter -Percent 35
+        & $reporter.ReportProgress 18 ([pscustomobject]@{ status = "Checking Java"; log = "Checking Java runtime" })
+        Ensure-Java -Reporter $reporter -ProgressState ([pscustomobject]@{ Percent = 22 })
 
-        & $reporter.ReportProgress 45 ([pscustomobject]@{ status = "Syncing mods"; log = "Comparing local mods with server manifest" })
-        Sync-Mods -Manifest $manifest -Reporter $reporter -StartPercent 45 -EndPercent 88
+        & $reporter.ReportProgress 30 ([pscustomobject]@{ status = "Checking NeoForge"; log = "Checking portable NeoForge instance" })
+        $versionId = Ensure-NeoForge -Manifest $manifest -Reporter $reporter -Percent 38
+
+        & $reporter.ReportProgress 45 ([pscustomobject]@{ status = "Syncing mods"; log = "Comparing portable mods with server manifest" })
+        Sync-Mods -Manifest $manifest -Reporter $reporter -StartPercent 45 -EndPercent 82
+
+        & $reporter.ReportProgress 86 ([pscustomobject]@{ status = "Bootstrapping HMCL"; log = "Preparing HMCL portable runtime" })
+        $hmclExe = Ensure-HMCL -Manifest $manifest -Reporter $reporter -Percent 90
+
+        & $reporter.ReportProgress 94 ([pscustomobject]@{ status = "Writing HMCL config"; log = "Writing profile, account, and memory settings" })
+        Write-HMCLConfig -Manifest $manifest -VersionId $versionId -RamMb $ramMb -PlayerName $playerName
 
         if (-not $UpdateOnly -and -not $script:NoLauncherStart) {
-            & $reporter.ReportProgress 92 ([pscustomobject]@{ status = "Preparing launcher"; log = "Looking for launcher" })
-            $launcher = Ensure-TLauncher -Manifest $manifest -Reporter $reporter -Percent 94
-
-            if ($launcher) {
-                $xmx = Get-RamXmx -Selected $script:ui.RamCombo.SelectedItem
-                & $reporter.ReportProgress 98 ([pscustomobject]@{ status = "Launching"; log = "Starting launcher (RAM: $xmx)" })
-                Start-Process -FilePath $launcher | Out-Null
-                & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Launcher started"; log = "Done." })
-            }
-            else {
-                Start-Process "https://tlauncher.org/en/" | Out-Null
-                & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found - opened TLauncher site." })
-            }
+            & $reporter.ReportProgress 98 ([pscustomobject]@{ status = "Starting HMCL"; log = "Opening HMCL with prepared profile ($playerName, ${ramMb}MB)" })
+            Start-HMCL -ExecutablePath $hmclExe
+            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "HMCL started"; log = "HMCL opened. The pack profile is preselected and ready." })
         }
         else {
-            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Up to date"; log = "All client files match the server manifest." })
+            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Pack updated"; log = "Portable HMCL pack is up to date." })
         }
 
         $server = if ($manifest -and $manifest.pack) { $manifest.pack.server_address } else { "unknown" }
         $script:ui.Status.Text = "Ready  -  Server: $server"
         $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
-        Add-LogLine -Log $script:ui.Log -Message ("All done. Server address: $server")
+        Add-LogLine -Log $script:ui.Log -Message ("All done. Portable pack root: $script:PortableRoot")
     }
     catch {
         $message = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
@@ -621,22 +770,24 @@ function Invoke-ClientFlow {
 
 function Start-ClientFlow {
     param([bool]$UpdateOnly)
-    $script:ui.PlayButton.Enabled   = $false
+
+    $script:ui.PlayButton.Enabled = $false
     $script:ui.UpdateButton.Enabled = $false
-    $script:ui.Status.ForeColor     = [System.Drawing.Color]::FromArgb(14, 165, 233)
-    $script:ui.Progress.Value       = 0
-    Add-LogLine -Log $script:ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ---"
+    $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(14, 165, 233)
+    $script:ui.Progress.Value = 0
+    Add-LogLine -Log $script:ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'portable pack update' } else { 'portable HMCL bootstrap' }) ---"
     Invoke-ClientFlow -UpdateOnly:$UpdateOnly
 }
 
-$ui.PlayButton.Add_Click({   Start-ClientFlow -UpdateOnly:$false })
-$ui.UpdateButton.Add_Click({ Start-ClientFlow -UpdateOnly:$true  })
+$ui.PlayButton.Add_Click({ Start-ClientFlow -UpdateOnly:$false })
+$ui.UpdateButton.Add_Click({ Start-ClientFlow -UpdateOnly:$true })
 
 $ui.Form.Add_Shown({
     $srvTimer.Start()
     Update-ServerStatus
+    $script:ui.PlayerNameBox.Text = Get-DefaultPlayerName
     $script:ui.Status.Text = "Ready"
-    Add-LogLine -Log $script:ui.Log -Message "Launcher ready. Click Play to install and start, or Update Only to sync files."
+    Add-LogLine -Log $script:ui.Log -Message "Launcher ready. This build uses portable HMCL, a dedicated game directory, and an offline account."
 })
 
 [void]$ui.Form.ShowDialog()

@@ -72,19 +72,20 @@ jobs:
           body: |
             ## Minecraft Tech Launcher — Create Aeronautics Pack
 
-            **One-click client installer** for the private Create Aeronautics tech server.
+            **Portable HMCL client bootstrapper** for the private Create Aeronautics tech server.
 
             ### What it does
             - Installs Java 21 (Temurin) via winget if missing
-            - Installs NeoForge `21.1.227` client profile
+            - Installs NeoForge `21.1.227` into a dedicated portable game directory
             - Syncs mods with the server manifest (SHA-512 verified)
-            - Launches TLauncher (downloads if not installed)
-            - Shows live server status and player count
+            - Downloads/updates portable HMCL automatically
+            - Creates HMCL profile + offline account + RAM settings
+            - Shows live server status and player count in launcher UI
 
             ### How to use
             1. Download `MinecraftTechLauncher.exe`
-            2. Double-click → click **Play**
-            3. In TLauncher select version **neoforge-21.1.227** and launch
+            2. Double-click → set nickname and RAM → click **Prepare and Open HMCL**
+            3. In HMCL launch the preselected pack profile
 
             **Server:** `95.105.73.172:25565`
           files: client/dist/MinecraftTechLauncher.exe

@@ -1,24 +1,22 @@
 # Client Guide
 
-This folder contains a modern one-click Windows launcher for your Create Aeronautics tech server.
+This folder contains the Windows client launcher for the Create Aeronautics pack. The current build uses portable HMCL instead of TLauncher.
 
-## One-Click UX
+## Current Flow
 
-The launcher is now GUI-first:
+The launcher now prepares its own isolated client root under `%LOCALAPPDATA%\MinecraftTechLauncher`.
 
-- dark modern window (no spammy popup OK dialogs)
-- server description and status at the top
-- live progress bar and scrolling operation log
-- auto-start flow on open: prepare client, sync mods, launch game
-- manual buttons: `Prepare and Play` and `Update Only`
+It does the following automatically:
 
-## What It Does Automatically
+- downloads the latest `manifest.json`
+- installs Java 21 if missing via `winget`
+- installs NeoForge `21.1.227` into the portable game directory
+- syncs mods to match the server manifest exactly
+- downloads portable HMCL if missing or outdated
+- writes HMCL config, portable profile, portable account, and RAM settings
+- opens HMCL with the pack profile already selected
 
-- downloads latest `manifest.json` from server
-- installs Java (Temurin 21) if missing via winget
-- installs NeoForge client `21.1.227` if missing
-- syncs mods to exact server manifest (remove stale + download new)
-- tries to install/find launcher, then starts it
+This avoids conflicts with the normal `%APPDATA%\.minecraft` folder and stops the launcher from falling back to vanilla or another launcher.
 
 Default manifest endpoint:
 
@@ -44,92 +42,52 @@ Output:
 client\dist\MinecraftTechLauncher.exe
 ```
 
-## Manual Setup (Fallback)
+## User Flow
 
-### 1. Install TLauncher
+1. Start the launcher.
+2. Enter your offline nickname.
+3. Choose RAM.
+4. Click `Prepare and Open HMCL`.
+5. HMCL opens with the pack profile ready to launch.
 
-Download TLauncher from the official site and install it.
+## Installed Paths
 
-### 2. Install NeoForge 1.21.1
-
-Download NeoForge installer for `21.1.227` and run `Install client`.
-
-Expected version:
-
-- Minecraft: `1.21.1`
-- Loader: `NeoForge`
-- NeoForge version: `21.1.227`
-
-### 3. Start the NeoForge profile once
-
-Launch the game once and then close it. This creates the `%APPDATA%\.minecraft\mods` folder.
-
-### 4. Download the mods
-
-Open PowerShell in this folder and run:
-
-```powershell
-.\download-client-mods.ps1
-```
-
-The script downloads the latest compatible versions from Modrinth into `%APPDATA%\.minecraft\mods`.
-
-### 5. Start the game
-
-In TLauncher select the NeoForge `1.21.1` profile and launch the game.
-
-### 6. Connect to the server
-
-Add this server in Multiplayer:
+Portable client root:
 
 ```text
-10.14.0.113:25565
+%LOCALAPPDATA%\MinecraftTechLauncher
 ```
 
-## What Gets Installed
+Important subfolders:
 
-Shared mods:
+- `game` - NeoForge instance, mods, versions, saves
+- `hmcl` - portable HMCL executable
+- `.hmcl` - local HMCL config
+- `.hmcl-home` - HMCL user data and global config
 
-- Create
-- Create Aeronautics
-- Create Deco
-- Sable
-- Farmer's Delight
-- Sophisticated Backpacks
-- Waystones
-- Lootr
-- YUNG's structures
-- FerriteCore
-- ModernFix
+## Manual Fallback
 
-Client-only quality of life mods:
+If you need to bootstrap without the GUI launcher:
 
-- JEI
-- Jade
+1. Download HMCL portable.
+2. Install NeoForge `21.1.227` into a dedicated game directory.
+3. Sync the mod list from `manifest.json`.
+4. Point HMCL profile to that directory and select the `neoforge-21.1.227` version.
 
 ## Troubleshooting
 
-### Mod conflict after old pack leftovers
+### HMCL opens but the game does not start immediately
 
-Run the downloader again. It automatically removes old `embeddium*.jar` files before downloading.
+The launcher prepares HMCL and selects the profile, but HMCL itself remains the final game launcher. Click Launch inside HMCL.
 
-### Launcher not found
+### Wrong nickname
 
-Auto-client will try in this order:
+Change the nickname field in the launcher and run `Prepare and Open HMCL` again. The offline account in HMCL will be rewritten.
 
-1. TLauncher executable (common install paths)
-2. Minecraft Launcher executable (common install paths)
+### Pack mismatch or old mods
 
-If none found, it opens TLauncher download page.
+Run `Update Pack Only`. The launcher removes stale jars from the portable `mods` directory and downloads the exact set from the manifest.
 
-### Wrong loader selected
+### Existing normal Minecraft is broken or polluted
 
-If the game crashes immediately, make sure TLauncher is using `NeoForge 1.21.1`, not Forge, Fabric, or vanilla.
-
-### Empty mods folder
-
-Start NeoForge once before running the downloader.
-
-### Server says incompatible client
-
-Delete old jars from `%APPDATA%\.minecraft\mods`, run the script again, and launch only the NeoForge `1.21.1` profile.
+This build does not use `%APPDATA%\.minecraft` for the pack anymore. Delete `%LOCALAPPDATA%\MinecraftTechLauncher` and run the launcher again to recreate the portable environment cleanly.

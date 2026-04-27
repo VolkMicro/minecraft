@@ -2,7 +2,7 @@ param(
     [string]$InputScript = "$PSScriptRoot\MinecraftAutoClient.ps1",
     [string]$OutExe      = "$PSScriptRoot\dist\MinecraftTechLauncher.exe",
     [string]$IconFile    = "$PSScriptRoot\icon.ico",
-    [string]$Version     = "1.2.0"
+    [string]$Version     = "2.0.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +28,7 @@ $params = @{
     outputFile = $OutExe
     noConsole  = $true
     title      = "Minecraft Tech Launcher"
-    description = "One-click NeoForge auto-client launcher"
+    description = "Portable HMCL launcher for the Create Aeronautics pack"
     version    = $Version
     copyright  = "VolkMicro"
 }

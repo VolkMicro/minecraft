@@ -70,6 +70,6 @@ HTTP service:
 
 ## Important Settings
 
-- `ONLINE_MODE=false` so TLauncher and offline accounts can join
+- `ONLINE_MODE=false` so HMCL offline accounts can join
 - `ENFORCE_WHITELIST=false` so any player can connect
 - `NEOFORGE_VERSION=21.1.227` is pinned because autodetection was unstable on remote startup

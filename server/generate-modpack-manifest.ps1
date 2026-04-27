@@ -60,8 +60,9 @@ $manifest = [ordered]@{
         manifest_base_url = $ManifestBaseUrl
     }
     launcher = [ordered]@{
-        preferred = "tlauncher"
-        tlauncher_installer_url = "https://dl2.tlauncher.org/f.php?f=files%2FTLauncher-Installer-1.8.0.exe"
+        preferred = "hmcl"
+        hmcl_version = "3.12.4"
+        hmcl_download_url = "https://github.com/HMCL-dev/HMCL/releases/download/release-3.12.4/HMCL-3.12.4.exe"
     }
     neoforge = [ordered]@{
         version = $NeoForgeVersion

@@ -5,7 +5,7 @@ Repository layout for the Create Aeronautics server pack.
 ## Structure
 
 - `server` - Dockerized NeoForge server, mod list, remote deploy, verification scripts
-- `client` - TLauncher/NeoForge client mod list, downloader, and full setup guide
+- `client` - Portable HMCL launcher, pack bootstrap scripts, and client setup guide
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ Read [client/README.md](./client/README.md) and then run:
 
 ```powershell
 cd .\client
-.\download-client-mods.ps1
+.\MinecraftAutoClient.ps1
 ```
 
 ## Remote Deploy
