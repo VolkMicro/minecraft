@@ -1,6 +1,6 @@
 param(
     [string]$InputScript = "$PSScriptRoot\MinecraftAutoClient.ps1",
-    [string]$OutExe = "$PSScriptRoot\dist\MinecraftAutoClient.exe"
+    [string]$OutExe = "$PSScriptRoot\dist\MinecraftTechLauncher.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +17,6 @@ if (-not (Get-Module -ListAvailable -Name ps2exe)) {
 
 Import-Module ps2exe -Force
 
-Invoke-ps2exe -inputFile $InputScript -outputFile $OutExe -noConsole -title "Minecraft Auto Client"
+Invoke-ps2exe -inputFile $InputScript -outputFile $OutExe -noConsole -title "Minecraft Tech Launcher"
 
 Write-Host "Built: $OutExe"

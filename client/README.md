@@ -1,31 +1,24 @@
 # Client Guide
 
-This folder contains everything needed to prepare and auto-update a Windows client for the Create Aeronautics pack.
+This folder contains a modern one-click Windows launcher for your Create Aeronautics tech server.
 
-## What You Need
+## One-Click UX
 
-1. TLauncher installed
-2. Java handled by Minecraft launcher/TLauncher
-3. NeoForge `1.21.1`
-4. This folder with `client-mods.txt` and `download-client-mods.ps1`
+The launcher is now GUI-first:
 
-## One-Click Setup (Recommended)
+- dark modern window (no spammy popup OK dialogs)
+- server description and status at the top
+- live progress bar and scrolling operation log
+- auto-start flow on open: prepare client, sync mods, launch game
+- manual buttons: `Prepare and Play` and `Update Only`
 
-1. Open PowerShell in this folder.
-2. Run:
+## What It Does Automatically
 
-```powershell
-.\MinecraftAutoClient.ps1
-```
-
-What it does automatically:
-
-- downloads the latest `manifest.json` from server
-- installs Java (Temurin 21) if missing (via winget)
+- downloads latest `manifest.json` from server
+- installs Java (Temurin 21) if missing via winget
 - installs NeoForge client `21.1.227` if missing
-- updates mods to exactly match server manifest
-- removes old mod jars not present in the manifest
-- starts the launcher (TLauncher if found, otherwise Minecraft Launcher)
+- syncs mods to exact server manifest (remove stale + download new)
+- tries to install/find launcher, then starts it
 
 Default manifest endpoint:
 
@@ -33,9 +26,13 @@ Default manifest endpoint:
 http://95.105.73.172:8088/manifest.json
 ```
 
-## Build EXE
+## Run Script Directly
 
-To build a standalone executable wrapper:
+```powershell
+.\MinecraftAutoClient.ps1
+```
+
+## Build EXE
 
 ```powershell
 .\build-client-exe.ps1
@@ -44,7 +41,7 @@ To build a standalone executable wrapper:
 Output:
 
 ```text
-client\dist\MinecraftAutoClient.exe
+client\dist\MinecraftTechLauncher.exe
 ```
 
 ## Manual Setup (Fallback)
