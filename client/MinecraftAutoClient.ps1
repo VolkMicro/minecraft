@@ -117,8 +117,8 @@ function Ensure-Java {
     $java = Get-Command java -ErrorAction SilentlyContinue
     if ($java) {
         Invoke-ReporterProgress -Reporter $Reporter -Percent $ProgressState.Percent -State ([pscustomobject]@{
-            status = "Java found"
-            log = "Java already installed: $($java.Source)"
+            status = "Java найдена"
+            log = "Java уже установлена: $($java.Source)"
         })
         return
     }
@@ -130,7 +130,7 @@ function Ensure-Java {
 
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if (-not $winget) {
-        throw "winget not found. Install App Installer from Microsoft Store and rerun."
+        throw "winget не найден. Установите App Installer из Microsoft Store и запустите снова."
     }
 
     $args = @(
@@ -142,7 +142,7 @@ function Ensure-Java {
     )
     $proc = Start-Process -FilePath "winget" -ArgumentList $args -PassThru -Wait
     if ($proc.ExitCode -ne 0) {
-        throw "Java install failed with exit code $($proc.ExitCode)"
+        throw "Установка Java завершилась с ошибкой: код $($proc.ExitCode)"
     }
 }
 
@@ -159,8 +159,8 @@ function Ensure-NeoForge {
 
     if (Test-Path $targetDir) {
         Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-            status = "NeoForge ready"
-            log = "NeoForge already installed in portable pack: $targetVersion"
+            status = "NeoForge готов"
+            log = "NeoForge уже установлен: $targetVersion"
         })
         return $targetVersion
     }
@@ -186,11 +186,11 @@ function Ensure-NeoForge {
     $arguments = @("-jar", $installerPath, "--install-client", $script:GameRoot)
     $proc = Start-Process -FilePath "java" -ArgumentList $arguments -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
-        throw "NeoForge installer failed with exit code $($proc.ExitCode)"
+        throw "Установщик NeoForge завершился с ошибкой: код $($proc.ExitCode)"
     }
 
     if (-not (Test-Path $targetDir)) {
-        throw "NeoForge install completed but expected version directory is missing: $targetDir"
+        throw "NeoForge установлен, но директория версии не найдена: $targetDir"
     }
 
     return $targetVersion
@@ -242,19 +242,19 @@ function Sync-Mods {
 
         if ($needDownload) {
             Invoke-ReporterProgress -Reporter $Reporter -Percent $pct -State ([pscustomobject]@{
-                status = "Syncing mods ($index/$total)"
-                log = "Downloading $($mod.filename)"
+                status = "Синхронизация модов ($index/$total)"
+                log = "Скачиваем $($mod.filename)"
             })
             Invoke-WebRequest -Uri $mod.url -OutFile $target
             $hash = Get-FileSHA512 -Path $target
             if ($hash -ne $mod.sha512) {
-                throw "Checksum mismatch after download: $($mod.filename)"
+                throw "Контрольная сумма не совпадает после загрузки: $($mod.filename)"
             }
         }
         else {
             Invoke-ReporterProgress -Reporter $Reporter -Percent $pct -State ([pscustomobject]@{
-                status = "Syncing mods ($index/$total)"
-                log = "Up-to-date: $($mod.filename)"
+                status = "Синхронизация модов ($index/$total)"
+                log = "Актуально: $($mod.filename)"
             })
         }
     }
@@ -294,8 +294,8 @@ function Ensure-HMCL {
 
     if ((Test-Path $script:HMCLExe) -and $installedVersion -eq $downloadInfo.Version) {
         Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-            status = "HMCL ready"
-            log = "HMCL already installed: $installedVersion"
+            status = "HMCL готов"
+            log = "HMCL уже установлен: $installedVersion"
         })
         return $script:HMCLExe
     }
@@ -305,8 +305,8 @@ function Ensure-HMCL {
     $downloadPath = Join-Path $tmpDir "HMCL.exe"
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-        status = "Downloading HMCL"
-        log = "Downloading HMCL portable $($downloadInfo.Version)"
+        status = "Загрузка HMCL"
+            log = "Скачиваем HMCL портативный $($downloadInfo.Version)"
     })
     Invoke-WebRequest -Uri $downloadInfo.Url -OutFile $downloadPath
 
@@ -314,8 +314,8 @@ function Ensure-HMCL {
     Set-Content -Path $script:HMCLVersionMarker -Value $downloadInfo.Version -Encoding UTF8
 
     Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
-        status = "HMCL ready"
-        log = "HMCL updated to $($downloadInfo.Version)"
+        status = "HMCL готов"
+            log = "HMCL обновлён до $($downloadInfo.Version)"
     })
 
     return $script:HMCLExe
@@ -407,7 +407,7 @@ function Start-HMCL {
 
     $process = [System.Diagnostics.Process]::Start($psi)
     if (-not $process) {
-        throw "Failed to start HMCL."
+        throw "Не удалось запустить HMCL."
     }
 }
 
@@ -479,13 +479,13 @@ function New-BannerBitmap {
 
     $titleFont = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
     $titleBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(240, 248, 255))
-    $graphics.DrawString("Create Aeronautics  -  HMCL Portable Client", $titleFont, $titleBrush, 18, 12)
+    $graphics.DrawString("Create Aeronautics  -  HMCL Портативный клиент", $titleFont, $titleBrush, 18, 12)
     $titleFont.Dispose()
     $titleBrush.Dispose()
 
     $subtitleFont = New-Object System.Drawing.Font("Segoe UI", 9.5)
     $subtitleBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(148, 163, 184))
-    $graphics.DrawString("Dedicated pack root, offline account, NeoForge 1.21.1, exact mod sync, HMCL instance bootstrap", $subtitleFont, $subtitleBrush, 18, 54)
+    $graphics.DrawString("Отдельная директория пака, оффлайн-аккаунт, NeoForge 1.21.1, синхронизация модов, HMCL", $subtitleFont, $subtitleBrush, 18, 54)
     $subtitleFont.Dispose()
     $subtitleBrush.Dispose()
 
@@ -503,7 +503,7 @@ function New-BannerBitmap {
 
 function New-LauncherUi {
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Minecraft Tech Launcher  v$LauncherVersion"
+    $form.Text = "Minecraft Tech Launcher  v$LauncherVersion  [RU]"
     $form.StartPosition = "CenterScreen"
     $form.Size = New-Object System.Drawing.Size(880, 660)
     $form.FormBorderStyle = "FixedSingle"
@@ -528,14 +528,14 @@ function New-LauncherUi {
     $srvDot.Size = New-Object System.Drawing.Size(10, 10)
 
     $srvLabel = New-Object System.Windows.Forms.Label
-    $srvLabel.Text = "Server: checking..."
+    $srvLabel.Text = "Сервер: проверка..."
     $srvLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $srvLabel.ForeColor = $C.TextMuted
     $srvLabel.Location = New-Object System.Drawing.Point(34, 9)
     $srvLabel.Size = New-Object System.Drawing.Size(400, 18)
 
     $srvRefreshBtn = New-Object System.Windows.Forms.Button
-    $srvRefreshBtn.Text = "Refresh"
+    $srvRefreshBtn.Text = "Обновить"
     $srvRefreshBtn.Font = New-Object System.Drawing.Font("Segoe UI", 10)
     $srvRefreshBtn.FlatStyle = "Flat"
     $srvRefreshBtn.FlatAppearance.BorderSize = 0
@@ -548,7 +548,7 @@ function New-LauncherUi {
     $form.Controls.Add($srvPanel)
 
     $statusLabel = New-Object System.Windows.Forms.Label
-    $statusLabel.Text = "Ready"
+    $statusLabel.Text = "Готово"
     $statusLabel.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
     $statusLabel.ForeColor = $C.Accent
     $statusLabel.Location = New-Object System.Drawing.Point(14, 155)
@@ -572,7 +572,7 @@ function New-LauncherUi {
     $log.Size = New-Object System.Drawing.Size(848, 360)
 
     $playerLabel = New-Object System.Windows.Forms.Label
-    $playerLabel.Text = "Nick:"
+    $playerLabel.Text = "Ник:"
     $playerLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $playerLabel.ForeColor = $C.TextMuted
     $playerLabel.Location = New-Object System.Drawing.Point(14, 580)
@@ -588,7 +588,7 @@ function New-LauncherUi {
     $playerBox.Text = Get-DefaultPlayerName
 
     $ramLabel = New-Object System.Windows.Forms.Label
-    $ramLabel.Text = "RAM:"
+    $ramLabel.Text = "ОЗУ:"
     $ramLabel.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $ramLabel.ForeColor = $C.TextMuted
     $ramLabel.Location = New-Object System.Drawing.Point(214, 580)
@@ -606,7 +606,7 @@ function New-LauncherUi {
     $ramCombo.SelectedIndex = 2
 
     $playBtn = New-Object System.Windows.Forms.Button
-    $playBtn.Text = "Prepare and Open HMCL"
+    $playBtn.Text = "Подготовить и запустить HMCL"
     $playBtn.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
     $playBtn.BackColor = $C.AccentDark
     $playBtn.ForeColor = [System.Drawing.Color]::White
@@ -616,7 +616,7 @@ function New-LauncherUi {
     $playBtn.Size = New-Object System.Drawing.Size(190, 36)
 
     $updateBtn = New-Object System.Windows.Forms.Button
-    $updateBtn.Text = "Update Pack Only"
+    $updateBtn.Text = "Обновить паки"
     $updateBtn.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $updateBtn.BackColor = $C.BtnSub
     $updateBtn.ForeColor = $C.TextPrim
@@ -626,7 +626,7 @@ function New-LauncherUi {
     $updateBtn.Size = New-Object System.Drawing.Size(140, 36)
 
     $closeBtn = New-Object System.Windows.Forms.Button
-    $closeBtn.Text = "Close"
+    $closeBtn.Text = "Закрыть"
     $closeBtn.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $closeBtn.BackColor = $C.Bg
     $closeBtn.ForeColor = $C.TextMuted
@@ -676,12 +676,12 @@ function Update-ServerStatus {
         $players = "$($response.players.online)/$($response.players.max)"
         $dot.BackColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
         $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-        $label.Text = "95.105.73.172  -  Online  -  $players players"
+        $label.Text = "95.105.73.172  -  Онлайн  -  игроков: $players"
     }
     else {
         $dot.BackColor = [System.Drawing.Color]::FromArgb(248, 113, 113)
         $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-        $label.Text = "95.105.73.172  -  Offline"
+        $label.Text = "95.105.73.172  -  Офлайн"
     }
 }
 
@@ -720,45 +720,45 @@ function Invoke-ClientFlow {
         $script:ui.PlayerNameBox.Text = $playerName
         $ramMb = Get-RamMb -Selected $script:ui.RamCombo.SelectedItem
 
-        & $reporter.ReportProgress 5 ([pscustomobject]@{ status = "Fetching manifest"; log = "Fetching manifest from $script:ManifestUrl" })
+        & $reporter.ReportProgress 5 ([pscustomobject]@{ status = "Загрузка манифеста"; log = "Загружаем манифест с $script:ManifestUrl" })
         $manifest = Invoke-RestMethod -Uri $script:ManifestUrl
 
-        & $reporter.ReportProgress 12 ([pscustomobject]@{ status = "Preparing pack root"; log = "Portable root: $script:PortableRoot" })
+        & $reporter.ReportProgress 12 ([pscustomobject]@{ status = "Подготовка директории"; log = "Портативная директория: $script:PortableRoot" })
         Ensure-Directory -Path $script:PortableRoot
         Ensure-Directory -Path $script:GameRoot
 
-        & $reporter.ReportProgress 18 ([pscustomobject]@{ status = "Checking Java"; log = "Checking Java runtime" })
+        & $reporter.ReportProgress 18 ([pscustomobject]@{ status = "Проверка Java"; log = "Проверяем Java Runtime" })
         Ensure-Java -Reporter $reporter -ProgressState ([pscustomobject]@{ Percent = 22 })
 
-        & $reporter.ReportProgress 30 ([pscustomobject]@{ status = "Checking NeoForge"; log = "Checking portable NeoForge instance" })
+        & $reporter.ReportProgress 30 ([pscustomobject]@{ status = "Проверка NeoForge"; log = "Проверяем портативный экземпляр NeoForge" })
         $versionId = Ensure-NeoForge -Manifest $manifest -Reporter $reporter -Percent 38
 
-        & $reporter.ReportProgress 45 ([pscustomobject]@{ status = "Syncing mods"; log = "Comparing portable mods with server manifest" })
+        & $reporter.ReportProgress 45 ([pscustomobject]@{ status = "Синхронизация модов"; log = "Сравниваем моды с манифестом сервера" })
         Sync-Mods -Manifest $manifest -Reporter $reporter -StartPercent 45 -EndPercent 82
 
-        & $reporter.ReportProgress 86 ([pscustomobject]@{ status = "Bootstrapping HMCL"; log = "Preparing HMCL portable runtime" })
+        & $reporter.ReportProgress 86 ([pscustomobject]@{ status = "Инициализация HMCL"; log = "Подготавливаем портативный HMCL" })
         $hmclExe = Ensure-HMCL -Manifest $manifest -Reporter $reporter -Percent 90
 
-        & $reporter.ReportProgress 94 ([pscustomobject]@{ status = "Writing HMCL config"; log = "Writing profile, account, and memory settings" })
+        & $reporter.ReportProgress 94 ([pscustomobject]@{ status = "Запись конфига HMCL"; log = "Сохраняем профиль, аккаунт и настройки памяти" })
         Write-HMCLConfig -Manifest $manifest -VersionId $versionId -RamMb $ramMb -PlayerName $playerName
 
         if (-not $UpdateOnly -and -not $script:NoLauncherStart) {
-            & $reporter.ReportProgress 98 ([pscustomobject]@{ status = "Starting HMCL"; log = "Opening HMCL with prepared profile ($playerName, ${ramMb}MB)" })
+            & $reporter.ReportProgress 98 ([pscustomobject]@{ status = "Запуск HMCL"; log = "Открываем HMCL с подготовленным профилем ($playerName, ${ramMb}МБ)" })
             Start-HMCL -ExecutablePath $hmclExe
-            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "HMCL started"; log = "HMCL opened. The pack profile is preselected and ready." })
+            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "HMCL запущен"; log = "HMCL открыт. Профиль пака выбран и готов к игре." })
         }
         else {
-            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Pack updated"; log = "Portable HMCL pack is up to date." })
+            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Пак обновлён"; log = "Портативный пак HMCL актуален." })
         }
 
         $server = if ($manifest -and $manifest.pack) { $manifest.pack.server_address } else { "unknown" }
-        $script:ui.Status.Text = "Ready  -  Server: $server"
+        $script:ui.Status.Text = "Готово  -  Сервер: $server"
         $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
-        Add-LogLine -Log $script:ui.Log -Message ("All done. Portable pack root: $script:PortableRoot")
+        Add-LogLine -Log $script:ui.Log -Message ("Готово. Директория пака: $script:PortableRoot")
     }
     catch {
         $message = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
-        $script:ui.Status.Text = "Failed"
+        $script:ui.Status.Text = "Ошибка"
         $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(248, 113, 113)
         Add-LogLine -Log $script:ui.Log -Message ("ERROR: " + $message)
     }
@@ -775,7 +775,7 @@ function Start-ClientFlow {
     $script:ui.UpdateButton.Enabled = $false
     $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(14, 165, 233)
     $script:ui.Progress.Value = 0
-    Add-LogLine -Log $script:ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'portable pack update' } else { 'portable HMCL bootstrap' }) ---"
+    Add-LogLine -Log $script:ui.Log -Message "--- $(if ($UpdateOnly) { 'Обновление пака' } else { 'Инициализация HMCL' }) ---"
     Invoke-ClientFlow -UpdateOnly:$UpdateOnly
 }
 
@@ -786,8 +786,8 @@ $ui.Form.Add_Shown({
     $srvTimer.Start()
     Update-ServerStatus
     $script:ui.PlayerNameBox.Text = Get-DefaultPlayerName
-    $script:ui.Status.Text = "Ready"
-    Add-LogLine -Log $script:ui.Log -Message "Launcher ready. This build uses portable HMCL, a dedicated game directory, and an offline account."
+    $script:ui.Status.Text = "Готово"
+    Add-LogLine -Log $script:ui.Log -Message "Лаунчер готов. Используется портативный HMCL, отдельная директория, оффлайн-аккаунт."
 })
 
 [void]$ui.Form.ShowDialog()
