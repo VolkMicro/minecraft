@@ -62,7 +62,7 @@ $manifest = [ordered]@{
     launcher = [ordered]@{
         preferred = "hmcl"
         hmcl_version = "3.12.4"
-        hmcl_download_url = "https://github.com/HMCL-dev/HMCL/releases/download/release-3.12.4/HMCL-3.12.4.exe"
+        hmcl_download_url = "https://github.com/HMCL-dev/HMCL/releases/download/v3.12.4/HMCL-3.12.4.exe"
     }
     neoforge = [ordered]@{
         version = $NeoForgeVersion
