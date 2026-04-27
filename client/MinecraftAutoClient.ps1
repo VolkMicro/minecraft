@@ -191,7 +191,17 @@ function Find-LauncherPath {
     $candidates = @(
         "$env:LOCALAPPDATA\Programs\TLauncher\TLauncher.exe",
         "$env:ProgramFiles\TLauncher\TLauncher.exe",
-        "$env:ProgramFiles(x86)\TLauncher\TLauncher.exe",
+        "$env:ProgramFiles(x86)\TLauncher\TLauncher.exe"
+    )
+
+    foreach ($p in $candidates) {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
+function Find-UnsupportedOfficialLauncherPath {
+    $candidates = @(
         "$env:LOCALAPPDATA\Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\game\MinecraftLauncher.exe",
         "$env:ProgramFiles\Minecraft Launcher\MinecraftLauncher.exe",
         "$env:ProgramFiles(x86)\Minecraft Launcher\MinecraftLauncher.exe"
@@ -217,6 +227,18 @@ function Ensure-TLauncher {
             log = "Launcher found: $launcher"
         })
         return $launcher
+    }
+
+    $officialLauncher = Find-UnsupportedOfficialLauncherPath
+    if ($officialLauncher) {
+        Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
+            status = "Selecting launcher"
+            log = "Official Minecraft Launcher detected but ignored: $officialLauncher"
+        })
+        Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
+            status = "Selecting launcher"
+            log = "Reason: it pulls vanilla/default versions and does not reliably launch this NeoForge pack."
+        })
     }
 
     $url = $Manifest.launcher.tlauncher_installer_url
