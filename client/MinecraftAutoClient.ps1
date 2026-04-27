@@ -154,10 +154,20 @@ function Find-Java21 {
     }
 
     # Try each candidate - return first one that reports version 17+
+    # Use --version (Java 9+) which writes to stdout; format: "openjdk 21.0.8 ..."
     foreach ($exe in $candidates) {
         try {
-            $out = & $exe -version 2>&1 | Select-Object -First 1
-            if ($out -match '(?:version\s+")(\d+)') {
+            $psi = New-Object System.Diagnostics.ProcessStartInfo
+            $psi.FileName = $exe
+            $psi.Arguments = '--version'
+            $psi.RedirectStandardOutput = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            $pr = [System.Diagnostics.Process]::Start($psi)
+            $out = $pr.StandardOutput.ReadLine()
+            $pr.WaitForExit()
+            # Matches: "openjdk 21.0.8 ..." or "java 21.0.8 ..."
+            if ($out -match '(?:openjdk|java)\s+(\d+)') {
                 $major = [int]$Matches[1]
                 if ($major -ge 17) { return $exe }
             }
@@ -200,7 +210,8 @@ function Ensure-Java {
         "--silent"
     )
     $proc = Start-Process -FilePath "winget" -ArgumentList $installArgs -PassThru -Wait
-    if ($proc.ExitCode -ne 0) {
+    # -1978335189 (0x8A150013) = already installed / no update available — treat as success
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne -1978335189) {
         throw "Установка Java завершилась с ошибкой: код $($proc.ExitCode)"
     }
 
