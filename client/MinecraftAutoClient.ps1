@@ -220,7 +220,7 @@ function Ensure-TLauncher {
     return (Find-LauncherPath)
 }
 
-# ─── Colour palette ──────────────────────────────────
+# --- Colour palette ----------------------------------
 $C = @{
     Bg         = [System.Drawing.Color]::FromArgb(10, 14, 22)
     HeaderTop  = [System.Drawing.Color]::FromArgb(8,  18, 35)
@@ -237,7 +237,7 @@ $C = @{
     BtnSub     = [System.Drawing.Color]::FromArgb(30,  41,  59)
 }
 
-# ─── Generate server banner image via GDI+ ───────────
+# --- Generate server banner image via GDI+ -----------
 function New-BannerBitmap {
     $W = 860; $H = 110
     $bmp = New-Object System.Drawing.Bitmap($W, $H)
@@ -297,7 +297,7 @@ function New-BannerBitmap {
     return $bmp
 }
 
-# ─── Build the main form ──────────────────────────────
+# --- Build the main form ------------------------------
 function New-LauncherUi {
 
     $form = New-Object System.Windows.Forms.Form
@@ -308,7 +308,7 @@ function New-LauncherUi {
     $form.MaximizeBox       = $false
     $form.BackColor         = $C.Bg
 
-    # ── Banner PictureBox ──
+    # -- Banner PictureBox --
     $banner = New-Object System.Windows.Forms.PictureBox
     $banner.Location        = New-Object System.Drawing.Point(0, 0)
     $banner.Size            = New-Object System.Drawing.Size(880, 110)
@@ -316,7 +316,7 @@ function New-LauncherUi {
     $banner.Image           = New-BannerBitmap
     $form.Controls.Add($banner)
 
-    # ── Server status row ──
+    # -- Server status row --
     $srvPanel = New-Object System.Windows.Forms.Panel
     $srvPanel.Location      = New-Object System.Drawing.Point(0, 110)
     $srvPanel.Size          = New-Object System.Drawing.Size(880, 36)
@@ -349,7 +349,7 @@ function New-LauncherUi {
     $srvPanel.Controls.AddRange(@($srvDot, $srvLabel, $srvRefreshBtn))
     $form.Controls.Add($srvPanel)
 
-    # ── Status + progress ──
+    # -- Status + progress --
     $statusLabel = New-Object System.Windows.Forms.Label
     $statusLabel.Text       = "Ready"
     $statusLabel.Font       = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
@@ -363,7 +363,7 @@ function New-LauncherUi {
     $progress.Minimum       = 0
     $progress.Maximum       = 100
 
-    # ── Log box ──
+    # -- Log box --
     $log = New-Object System.Windows.Forms.TextBox
     $log.Multiline          = $true
     $log.ScrollBars         = "Vertical"
@@ -375,7 +375,7 @@ function New-LauncherUi {
     $log.Location           = New-Object System.Drawing.Point(14, 206)
     $log.Size               = New-Object System.Drawing.Size(848, 360)
 
-    # ── Settings row ──
+    # -- Settings row --
     $ramLabel = New-Object System.Windows.Forms.Label
     $ramLabel.Text          = "RAM:"
     $ramLabel.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -394,7 +394,7 @@ function New-LauncherUi {
     @("2 GB","3 GB","4 GB","6 GB","8 GB","12 GB","16 GB") | ForEach-Object { [void]$ramCombo.Items.Add($_) }
     $ramCombo.SelectedIndex = 2  # default 4 GB
 
-    # ── Buttons ──
+    # -- Buttons --
     $playBtn = New-Object System.Windows.Forms.Button
     $playBtn.Text           = "▶  Play"
     $playBtn.Font           = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
@@ -452,7 +452,7 @@ function Add-LogLine {
     $Log.ScrollToCaret()
 }
 
-# ─── Server status async check ────────────────────────
+# --- Server status async check ------------------------
 function Update-ServerStatus {
     $dot   = $ui.SrvDot
     $label = $ui.SrvLabel
@@ -485,7 +485,7 @@ function Update-ServerStatus {
     $srvWorker.RunWorkerAsync() | Out-Null
 }
 
-# ─── RAM string helper ────────────────────────────────
+# --- RAM string helper --------------------------------
 function Get-RamXmx {
     param([string]$Selected)
     $map = @{
@@ -503,7 +503,7 @@ function Get-RamXmx {
 
 $ui = New-LauncherUi
 
-# ─── Server status timer (auto-refresh every 60 s) ───
+# --- Server status timer (auto-refresh every 60 s) ---
 $srvTimer = New-Object System.Windows.Forms.Timer
 $srvTimer.Interval = 60000
 $srvTimer.Add_Tick({ Update-ServerStatus })
@@ -540,7 +540,7 @@ $worker.Add_DoWork({
             $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher started"; log = "Done." })
         } else {
             Start-Process "https://tlauncher.org/en/" | Out-Null
-            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found — opened TLauncher site." })
+            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found - opened TLauncher site." })
         }
     } else {
         $sender.ReportProgress(100, [pscustomobject]@{ status = "Up to date"; log = "All client files match the server manifest." })
@@ -584,7 +584,7 @@ function Start-ClientFlow {
     $ui.UpdateButton.Enabled = $false
     $ui.Status.ForeColor     = $C.Accent
     $ui.Progress.Value       = 0
-    Add-LogLine -Log $ui.Log -Message "─── Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ───"
+    Add-LogLine -Log $ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ---"
     $worker.RunWorkerAsync($UpdateOnly)
 }
 
