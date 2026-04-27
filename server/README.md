@@ -48,6 +48,26 @@ Run:
 .\deploy-remote.ps1
 ```
 
+This deploy now also publishes a modpack manifest to `http://95.105.73.172:8088/manifest.json`.
+
+## Modpack Manifest
+
+Regenerate manually:
+
+```powershell
+.\generate-modpack-manifest.ps1
+```
+
+Published files:
+
+- `modpack/manifest.json`
+- `modpack/index.html`
+
+HTTP service:
+
+- container: `mc-modpack-http`
+- public endpoint: `http://95.105.73.172:8088/manifest.json`
+
 ## Important Settings
 
 - `ONLINE_MODE=false` so TLauncher and offline accounts can join

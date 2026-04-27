@@ -1,6 +1,6 @@
 # Client Guide
 
-This folder contains everything needed to prepare a TLauncher client for the Create Aeronautics pack.
+This folder contains everything needed to prepare and auto-update a Windows client for the Create Aeronautics pack.
 
 ## What You Need
 
@@ -9,7 +9,45 @@ This folder contains everything needed to prepare a TLauncher client for the Cre
 3. NeoForge `1.21.1`
 4. This folder with `client-mods.txt` and `download-client-mods.ps1`
 
-## Full Setup
+## One-Click Setup (Recommended)
+
+1. Open PowerShell in this folder.
+2. Run:
+
+```powershell
+.\MinecraftAutoClient.ps1
+```
+
+What it does automatically:
+
+- downloads the latest `manifest.json` from server
+- installs Java (Temurin 21) if missing (via winget)
+- installs NeoForge client `21.1.227` if missing
+- updates mods to exactly match server manifest
+- removes old mod jars not present in the manifest
+- starts the launcher (TLauncher if found, otherwise Minecraft Launcher)
+
+Default manifest endpoint:
+
+```text
+http://95.105.73.172:8088/manifest.json
+```
+
+## Build EXE
+
+To build a standalone executable wrapper:
+
+```powershell
+.\build-client-exe.ps1
+```
+
+Output:
+
+```text
+client\dist\MinecraftAutoClient.exe
+```
+
+## Manual Setup (Fallback)
 
 ### 1. Install TLauncher
 
@@ -77,6 +115,15 @@ Client-only quality of life mods:
 ### Mod conflict after old pack leftovers
 
 Run the downloader again. It automatically removes old `embeddium*.jar` files before downloading.
+
+### Launcher not found
+
+Auto-client will try in this order:
+
+1. TLauncher executable (common install paths)
+2. Minecraft Launcher executable (common install paths)
+
+If none found, it opens TLauncher download page.
 
 ### Wrong loader selected
 

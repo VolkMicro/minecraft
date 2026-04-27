@@ -1,5 +1,6 @@
 server/data/
 server/.env
+client/dist/
 *.log
 *.tmp
 *.zip

@@ -36,3 +36,12 @@ services:
     volumes:
       - ./data:/data
       - ./extras:/extras:ro
+
+  modpack-http:
+    image: caddy:2-alpine
+    container_name: mc-modpack-http
+    restart: unless-stopped
+    ports:
+      - "8088:80"
+    volumes:
+      - ./modpack:/usr/share/caddy:ro
