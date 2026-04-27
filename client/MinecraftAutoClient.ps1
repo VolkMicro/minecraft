@@ -353,7 +353,7 @@ function Write-HMCLConfig {
         commonDirType = 1
         commonpath = $script:GameRoot
         preferredLoginType = "offline"
-        selectedAccount = "$PlayerName:$PlayerName"
+        selectedAccount = "${PlayerName}:${PlayerName}"
         accounts = @(
             [ordered]@{
                 type = "offline"
