@@ -316,6 +316,17 @@ function Ensure-NeoForge {
         throw "NeoForge установлен, но директория версии не найдена: $targetDir"
     }
 
+    # NeoForge 21.x (1.17+) does not create a version JAR by design (uses bootstraplauncher).
+    # HMCL requires a .jar file to be present in the version directory to recognize the build.
+    # Create an empty (minimal valid ZIP) placeholder so HMCL shows the NeoForge version.
+    $versionJar = Join-Path $targetDir "$targetVersion.jar"
+    if (-not (Test-Path $versionJar)) {
+        # Minimal valid empty ZIP / JAR (End-of-Central-Directory record only)
+        $emptyJarBytes = [byte[]](0x50,0x4B,0x05,0x06,0x00,0x00,0x00,0x00,0x00,0x00,
+                                  0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00)
+        [System.IO.File]::WriteAllBytes($versionJar, $emptyJarBytes)
+    }
+
     return $targetVersion
 }
 
