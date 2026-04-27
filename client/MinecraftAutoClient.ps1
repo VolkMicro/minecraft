@@ -261,6 +261,13 @@ function Ensure-NeoForge {
         log = "Используем Java: $javaExe"
     })
 
+    # NeoForge installer requires launcher_profiles.json to exist in the target directory
+    $profilesPath = Join-Path $script:GameRoot "launcher_profiles.json"
+    if (-not (Test-Path $profilesPath)) {
+        $stubProfiles = '{"profiles":{},"settings":{"enableAdvanced":false},"version":3}'
+        [System.IO.File]::WriteAllText($profilesPath, $stubProfiles, [System.Text.UTF8Encoding]::new($false))
+    }
+
     $arguments = @("-jar", $installerPath, "--install-client", $script:GameRoot)
     $proc = Start-Process -FilePath $javaExe -ArgumentList $arguments -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
