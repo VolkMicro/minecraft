@@ -17,6 +17,29 @@ function Get-FileSHA512 {
     return (Get-FileHash -Path $Path -Algorithm SHA512).Hash.ToLowerInvariant()
 }
 
+function Invoke-ReporterProgress {
+    param(
+        [object]$Reporter,
+        [int]$Percent,
+        [object]$State
+    )
+
+    if ($Reporter -and $Reporter.PSObject.Properties['ReportProgress']) {
+        $reportProgress = $Reporter.PSObject.Properties['ReportProgress'].Value
+        if ($reportProgress -is [scriptblock]) {
+            & $reportProgress $Percent $State
+            return
+        }
+    }
+
+    if ($Reporter -and $Reporter -is [System.ComponentModel.BackgroundWorker]) {
+        $Reporter.ReportProgress($Percent, $State)
+        return
+    }
+
+    throw 'Reporter does not support progress updates.'
+}
+
 function Ensure-Java {
     param(
         [object]$Reporter,
@@ -25,14 +48,14 @@ function Ensure-Java {
 
     $java = Get-Command java -ErrorAction SilentlyContinue
     if ($java) {
-        $Reporter.ReportProgress($ProgressState.Percent, [pscustomobject]@{
+        Invoke-ReporterProgress -Reporter $Reporter -Percent $ProgressState.Percent -State ([pscustomobject]@{
             status = "Java found"
             log = "Java already installed: $($java.Source)"
         })
         return
     }
 
-    $Reporter.ReportProgress($ProgressState.Percent, [pscustomobject]@{
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $ProgressState.Percent -State ([pscustomobject]@{
         status = "Installing Java"
         log = "Java not found. Installing Temurin 21 via winget..."
     })
@@ -68,7 +91,7 @@ function Ensure-NeoForge {
     $targetDir = Join-Path $versionsDir $targetVersion
 
     if (Test-Path $targetDir) {
-        $Reporter.ReportProgress($Percent, [pscustomobject]@{
+        Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
             status = "NeoForge ready"
             log = "NeoForge already installed: $targetVersion"
         })
@@ -80,13 +103,13 @@ function Ensure-NeoForge {
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
 
     $installerPath = Join-Path $tmpDir "neoforge-installer.jar"
-    $Reporter.ReportProgress($Percent, [pscustomobject]@{
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
         status = "Downloading NeoForge"
         log = "Downloading NeoForge installer: $($Manifest.neoforge.version)"
     })
     Invoke-WebRequest -Uri $Manifest.neoforge.installer_url -OutFile $installerPath
 
-    $Reporter.ReportProgress($Percent, [pscustomobject]@{
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
         status = "Installing NeoForge"
         log = "Installing NeoForge client profile"
     })
@@ -115,7 +138,7 @@ function Sync-Mods {
         $expected[$m.filename] = $m
     }
 
-    $Reporter.ReportProgress($StartPercent, [pscustomobject]@{
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $StartPercent -State ([pscustomobject]@{
         status = "Preparing mods"
         log = "Removing old mods not present in current pack"
     })
@@ -145,7 +168,7 @@ function Sync-Mods {
         }
 
         if ($needDownload) {
-            $Reporter.ReportProgress($pct, [pscustomobject]@{
+            Invoke-ReporterProgress -Reporter $Reporter -Percent $pct -State ([pscustomobject]@{
                 status = "Syncing mods ($idx/$total)"
                 log = "Downloading $($m.filename)"
             })
@@ -156,7 +179,7 @@ function Sync-Mods {
             }
         }
         else {
-            $Reporter.ReportProgress($pct, [pscustomobject]@{
+            Invoke-ReporterProgress -Reporter $Reporter -Percent $pct -State ([pscustomobject]@{
                 status = "Syncing mods ($idx/$total)"
                 log = "Up-to-date: $($m.filename)"
             })
@@ -189,7 +212,7 @@ function Ensure-TLauncher {
 
     $launcher = Find-LauncherPath
     if ($launcher) {
-        $Reporter.ReportProgress($Percent, [pscustomobject]@{
+        Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
             status = "Launcher ready"
             log = "Launcher found: $launcher"
         })
@@ -205,19 +228,39 @@ function Ensure-TLauncher {
     New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
     $installer = Join-Path $tmpDir "tlauncher-installer.exe"
 
-    $Reporter.ReportProgress($Percent, [pscustomobject]@{
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
         status = "Installing launcher"
         log = "Downloading TLauncher installer"
     })
     Invoke-WebRequest -Uri $url -OutFile $installer
 
-    $Reporter.ReportProgress($Percent, [pscustomobject]@{
+    Invoke-ReporterProgress -Reporter $Reporter -Percent $Percent -State ([pscustomobject]@{
         status = "Installing launcher"
         log = "Running TLauncher installer"
     })
     Start-Process -FilePath $installer -Wait
 
     return (Find-LauncherPath)
+}
+
+function New-UiReporter {
+    return [pscustomobject]@{
+        ReportProgress = {
+            param([int]$Percent, [object]$State)
+
+            $script:ui.Progress.Value = [Math]::Min(100, [Math]::Max(0, $Percent))
+            if ($State) {
+                if ($State.status) {
+                    $script:ui.Status.Text = $State.status
+                }
+                if ($State.log) {
+                    Add-LogLine -Log $script:ui.Log -Message $State.log
+                }
+            }
+
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+    }
 }
 
 # --- Colour palette ----------------------------------
@@ -276,13 +319,13 @@ function New-BannerBitmap {
     # Title text
     $fontTitle = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
     $brushTitle = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(240, 248, 255))
-    $g.DrawString("Create Aeronautics  ·  Tech Industrial Server", $fontTitle, $brushTitle, 18, 12)
+    $g.DrawString("Create Aeronautics  -  Tech Industrial Server", $fontTitle, $brushTitle, 18, 12)
     $fontTitle.Dispose(); $brushTitle.Dispose()
 
     # Subtitle text
     $fontSub = New-Object System.Drawing.Font("Segoe UI", 9.5)
     $brushSub = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(148, 163, 184))
-    $g.DrawString("NeoForge 1.21.1  ·  Industrial automation, flying machines, tech progression, shared exploration", $fontSub, $brushSub, 18, 54)
+    $g.DrawString("NeoForge 1.21.1  -  Industrial automation, flying machines, tech progression, shared exploration", $fontSub, $brushSub, 18, 54)
     $fontSub.Dispose(); $brushSub.Dispose()
 
     # Version label bottom-right
@@ -322,12 +365,10 @@ function New-LauncherUi {
     $srvPanel.Size          = New-Object System.Drawing.Size(880, 36)
     $srvPanel.BackColor     = $C.Panel
 
-    $srvDot = New-Object System.Windows.Forms.Label
-    $srvDot.Text            = "●"
-    $srvDot.Font            = New-Object System.Drawing.Font("Segoe UI", 10)
-    $srvDot.ForeColor       = $C.TextMuted
-    $srvDot.Location        = New-Object System.Drawing.Point(14, 8)
-    $srvDot.Size            = New-Object System.Drawing.Size(18, 20)
+    $srvDot = New-Object System.Windows.Forms.Panel
+    $srvDot.BackColor       = $C.TextMuted
+    $srvDot.Location        = New-Object System.Drawing.Point(16, 12)
+    $srvDot.Size            = New-Object System.Drawing.Size(10, 10)
 
     $srvLabel = New-Object System.Windows.Forms.Label
     $srvLabel.Text          = "Server: checking..."
@@ -337,14 +378,14 @@ function New-LauncherUi {
     $srvLabel.Size          = New-Object System.Drawing.Size(400, 18)
 
     $srvRefreshBtn = New-Object System.Windows.Forms.Button
-    $srvRefreshBtn.Text     = "↻"
+    $srvRefreshBtn.Text     = "Refresh"
     $srvRefreshBtn.Font     = New-Object System.Drawing.Font("Segoe UI", 10)
     $srvRefreshBtn.FlatStyle = "Flat"
     $srvRefreshBtn.FlatAppearance.BorderSize = 0
     $srvRefreshBtn.BackColor = $C.Panel
     $srvRefreshBtn.ForeColor = $C.TextMuted
     $srvRefreshBtn.Location  = New-Object System.Drawing.Point(450, 4)
-    $srvRefreshBtn.Size      = New-Object System.Drawing.Size(28, 28)
+    $srvRefreshBtn.Size      = New-Object System.Drawing.Size(78, 28)
 
     $srvPanel.Controls.AddRange(@($srvDot, $srvLabel, $srvRefreshBtn))
     $form.Controls.Add($srvPanel)
@@ -396,7 +437,7 @@ function New-LauncherUi {
 
     # -- Buttons --
     $playBtn = New-Object System.Windows.Forms.Button
-    $playBtn.Text           = "▶  Play"
+    $playBtn.Text           = "Play"
     $playBtn.Font           = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
     $playBtn.BackColor      = $C.AccentDark
     $playBtn.ForeColor      = [System.Drawing.Color]::White
@@ -408,7 +449,7 @@ function New-LauncherUi {
     $playBtn.Size           = New-Object System.Drawing.Size(160, 36)
 
     $updateBtn = New-Object System.Windows.Forms.Button
-    $updateBtn.Text         = "⟳  Update Only"
+    $updateBtn.Text         = "Update Only"
     $updateBtn.Font         = New-Object System.Drawing.Font("Segoe UI", 9)
     $updateBtn.BackColor    = $C.BtnSub
     $updateBtn.ForeColor    = $C.TextPrim
@@ -454,36 +495,27 @@ function Add-LogLine {
 
 # --- Server status async check ------------------------
 function Update-ServerStatus {
-    $dot     = $script:ui.SrvDot
-    $label   = $script:ui.SrvLabel
-    $_srvUrl = $script:ServerStatus
+    $dot   = $script:ui.SrvDot
+    $label = $script:ui.SrvLabel
 
-    $srvWorker = New-Object System.ComponentModel.BackgroundWorker
-    $srvWorker.Add_DoWork({
-        param($s, $e)
-        try {
-            $result = Invoke-RestMethod -Uri $e.Argument -TimeoutSec 6 -ErrorAction Stop
-            $e.Result = $result
-        } catch {
-            $e.Result = $null
-        }
-    })
-    $srvWorker.Add_RunWorkerCompleted({
-        param($s, $e)
-        $r = $e.Result
-        if ($r -and $r.online) {
-            $players = "$($r.players.online)/$($r.players.max)"
-            $motd    = if ($r.motd.clean) { $r.motd.clean[0] } else { "" }
-            $dot.ForeColor   = [System.Drawing.Color]::FromArgb(74, 222, 128)
-            $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-            $label.Text      = "95.105.73.172  ·  Online  ·  $players players online"
-        } else {
-            $dot.ForeColor   = [System.Drawing.Color]::FromArgb(248, 113, 113)
-            $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-            $label.Text      = "95.105.73.172  ·  Offline"
-        }
-    })
-    $srvWorker.RunWorkerAsync($_srvUrl) | Out-Null
+    try {
+        $r = Invoke-RestMethod -Uri $script:ServerStatus -TimeoutSec 6 -ErrorAction Stop
+    }
+    catch {
+        $r = $null
+    }
+
+    if ($r -and $r.online) {
+        $players = "$($r.players.online)/$($r.players.max)"
+        $dot.BackColor   = [System.Drawing.Color]::FromArgb(74, 222, 128)
+        $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+        $label.Text      = "95.105.73.172  -  Online  -  $players players"
+    }
+    else {
+        $dot.BackColor   = [System.Drawing.Color]::FromArgb(248, 113, 113)
+        $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+        $label.Text      = "95.105.73.172  -  Offline"
+    }
 }
 
 # --- RAM string helper --------------------------------
@@ -510,84 +542,69 @@ $srvTimer.Interval = 60000
 $srvTimer.Add_Tick({ Update-ServerStatus })
 $ui.SrvRefresh.Add_Click({ Update-ServerStatus })
 
-$worker = New-Object System.ComponentModel.BackgroundWorker
-$worker.WorkerReportsProgress = $true
+function Invoke-ClientFlow {
+    param([bool]$UpdateOnly)
 
-$worker.Add_DoWork({
-    param($sender, $e)
+    $reporter = New-UiReporter
+    $manifest = $null
 
-    $updateOnly = [bool]$e.Argument
-    $_url       = $script:ManifestUrl
+    try {
+        & $reporter.ReportProgress 5 ([pscustomobject]@{ status = "Fetching manifest"; log = "Fetching manifest from $script:ManifestUrl" })
+        $manifest = Invoke-RestMethod -Uri $script:ManifestUrl
 
-    $sender.ReportProgress(5,  [pscustomobject]@{ status = "Fetching manifest";   log = "Fetching manifest from $_url" })
-    $manifest = Invoke-RestMethod -Uri $_url
+        & $reporter.ReportProgress 15 ([pscustomobject]@{ status = "Checking Java"; log = "Checking Java runtime" })
+        Ensure-Java -Reporter $reporter -ProgressState ([pscustomobject]@{ Percent = 20 })
 
-    $sender.ReportProgress(15, [pscustomobject]@{ status = "Checking Java";       log = "Checking Java runtime" })
-    Ensure-Java -Reporter $sender -ProgressState ([pscustomobject]@{ Percent = 20 })
+        & $reporter.ReportProgress 30 ([pscustomobject]@{ status = "Checking NeoForge"; log = "Checking NeoForge client profile" })
+        Ensure-NeoForge -Manifest $manifest -Reporter $reporter -Percent 35
 
-    $sender.ReportProgress(30, [pscustomobject]@{ status = "Checking NeoForge";   log = "Checking NeoForge client profile" })
-    Ensure-NeoForge -Manifest $manifest -Reporter $sender -Percent 35
+        & $reporter.ReportProgress 45 ([pscustomobject]@{ status = "Syncing mods"; log = "Comparing local mods with server manifest" })
+        Sync-Mods -Manifest $manifest -Reporter $reporter -StartPercent 45 -EndPercent 88
 
-    $sender.ReportProgress(45, [pscustomobject]@{ status = "Syncing mods";        log = "Comparing local mods with server manifest" })
-    Sync-Mods -Manifest $manifest -Reporter $sender -StartPercent 45 -EndPercent 88
+        if (-not $UpdateOnly -and -not $script:NoLauncherStart) {
+            & $reporter.ReportProgress 92 ([pscustomobject]@{ status = "Preparing launcher"; log = "Looking for launcher" })
+            $launcher = Ensure-TLauncher -Manifest $manifest -Reporter $reporter -Percent 94
 
-    if (-not $updateOnly -and -not $script:NoLauncherStart) {
-        $sender.ReportProgress(92, [pscustomobject]@{ status = "Preparing launcher"; log = "Looking for launcher" })
-        $launcher = Ensure-TLauncher -Manifest $manifest -Reporter $sender -Percent 94
-
-        if ($launcher) {
-            $xmx = Get-RamXmx -Selected $script:ui.RamCombo.SelectedItem
-            $sender.ReportProgress(98, [pscustomobject]@{ status = "Launching"; log = "Starting launcher  (RAM: $xmx)" })
-            Start-Process -FilePath $launcher | Out-Null
-            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher started"; log = "Done." })
-        } else {
-            Start-Process "https://tlauncher.org/en/" | Out-Null
-            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found - opened TLauncher site." })
+            if ($launcher) {
+                $xmx = Get-RamXmx -Selected $script:ui.RamCombo.SelectedItem
+                & $reporter.ReportProgress 98 ([pscustomobject]@{ status = "Launching"; log = "Starting launcher (RAM: $xmx)" })
+                Start-Process -FilePath $launcher | Out-Null
+                & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Launcher started"; log = "Done." })
+            }
+            else {
+                Start-Process "https://tlauncher.org/en/" | Out-Null
+                & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found - opened TLauncher site." })
+            }
         }
-    } else {
-        $sender.ReportProgress(100, [pscustomobject]@{ status = "Up to date"; log = "All client files match the server manifest." })
+        else {
+            & $reporter.ReportProgress 100 ([pscustomobject]@{ status = "Up to date"; log = "All client files match the server manifest." })
+        }
+
+        $server = if ($manifest -and $manifest.pack) { $manifest.pack.server_address } else { "unknown" }
+        $script:ui.Status.Text = "Ready  -  Server: $server"
+        $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
+        Add-LogLine -Log $script:ui.Log -Message ("All done. Server address: $server")
     }
-
-    $e.Result = $manifest
-})
-
-$worker.Add_ProgressChanged({
-    param($sender, $e)
-    $script:ui.Progress.Value = [Math]::Min(100, [Math]::Max(0, $e.ProgressPercentage))
-    if ($e.UserState) {
-        if ($e.UserState.status) { $script:ui.Status.Text = $e.UserState.status }
-        if ($e.UserState.log)    { Add-LogLine -Log $script:ui.Log -Message $e.UserState.log }
-    }
-})
-
-$worker.Add_RunWorkerCompleted({
-    param($sender, $e)
-    $script:ui.PlayButton.Enabled   = $true
-    $script:ui.UpdateButton.Enabled = $true
-
-    if ($e.Error) {
-        $script:ui.Status.Text      = "Failed"
+    catch {
+        $message = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { $_.Exception.Message }
+        $script:ui.Status.Text = "Failed"
         $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(248, 113, 113)
-        Add-LogLine -Log $script:ui.Log -Message ("ERROR: " + $e.Error.Exception.Message)
-        return
+        Add-LogLine -Log $script:ui.Log -Message ("ERROR: " + $message)
     }
-
-    $m      = $e.Result
-    $server = if ($m -and $m.pack) { $m.pack.server_address } else { "unknown" }
-    $script:ui.Status.Text      = "Ready  -  Server: $server"
-    $script:ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(74, 222, 128)
-    Add-LogLine -Log $script:ui.Log -Message ("All done.  Server address: $server")
-})
+    finally {
+        $script:ui.PlayButton.Enabled = $true
+        $script:ui.UpdateButton.Enabled = $true
+    }
+}
 
 function Start-ClientFlow {
     param([bool]$UpdateOnly)
-    if ($script:worker.IsBusy) { return }
     $script:ui.PlayButton.Enabled   = $false
     $script:ui.UpdateButton.Enabled = $false
     $script:ui.Status.ForeColor     = [System.Drawing.Color]::FromArgb(14, 165, 233)
     $script:ui.Progress.Value       = 0
     Add-LogLine -Log $script:ui.Log -Message "--- Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ---"
-    $script:worker.RunWorkerAsync($UpdateOnly)
+    Invoke-ClientFlow -UpdateOnly:$UpdateOnly
 }
 
 $ui.PlayButton.Add_Click({   Start-ClientFlow -UpdateOnly:$false })
@@ -596,7 +613,8 @@ $ui.UpdateButton.Add_Click({ Start-ClientFlow -UpdateOnly:$true  })
 $ui.Form.Add_Shown({
     $srvTimer.Start()
     Update-ServerStatus
-    Start-ClientFlow -UpdateOnly:$false
+    $script:ui.Status.Text = "Ready"
+    Add-LogLine -Log $script:ui.Log -Message "Launcher ready. Click Play to install and start, or Update Only to sync files."
 })
 
 [void]$ui.Form.ShowDialog()
