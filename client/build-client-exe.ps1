@@ -1,6 +1,8 @@
 param(
     [string]$InputScript = "$PSScriptRoot\MinecraftAutoClient.ps1",
-    [string]$OutExe = "$PSScriptRoot\dist\MinecraftTechLauncher.exe"
+    [string]$OutExe      = "$PSScriptRoot\dist\MinecraftTechLauncher.exe",
+    [string]$IconFile    = "$PSScriptRoot\icon.ico",
+    [string]$Version     = "1.2.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +10,10 @@ $ErrorActionPreference = "Stop"
 if (-not (Test-Path $InputScript)) {
     throw "Input script not found: $InputScript"
 }
+
+# Generate the icon
+Write-Host "Generating icon..."
+& "$PSScriptRoot\generate-icon.ps1" -OutPath $IconFile
 
 New-Item -ItemType Directory -Force -Path (Split-Path $OutExe -Parent) | Out-Null
 
@@ -17,6 +23,20 @@ if (-not (Get-Module -ListAvailable -Name ps2exe)) {
 
 Import-Module ps2exe -Force
 
-Invoke-ps2exe -inputFile $InputScript -outputFile $OutExe -noConsole -title "Minecraft Tech Launcher"
+$params = @{
+    inputFile  = $InputScript
+    outputFile = $OutExe
+    noConsole  = $true
+    title      = "Minecraft Tech Launcher"
+    description = "One-click NeoForge auto-client launcher"
+    version    = $Version
+    copyright  = "VolkMicro"
+}
 
-Write-Host "Built: $OutExe"
+if (Test-Path $IconFile) {
+    $params.iconFile = $IconFile
+}
+
+Invoke-ps2exe @params
+
+Write-Host "Built: $OutExe  (v$Version)"

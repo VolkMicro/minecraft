@@ -1,0 +1,92 @@
+name: Build & Release Launcher
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "client/**"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g. 1.3.0)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build MinecraftTechLauncher.exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          $ver = "${{ github.event.inputs.version }}"
+          if (-not $ver) {
+            # derive from date + short SHA
+            $ver = "$(Get-Date -Format 'yyyy.MM.dd')-$(git rev-parse --short HEAD)"
+          }
+          echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+          echo "Resolved version: $ver"
+
+      - name: Install ps2exe
+        shell: pwsh
+        run: Install-Module ps2exe -Scope CurrentUser -Force -AllowClobber
+
+      - name: Generate icon
+        shell: pwsh
+        working-directory: client
+        run: .\generate-icon.ps1 -OutPath icon.ico
+
+      - name: Build EXE
+        shell: pwsh
+        working-directory: client
+        run: |
+          .\build-client-exe.ps1 `
+            -OutExe "dist\MinecraftTechLauncher.exe" `
+            -IconFile "icon.ico" `
+            -Version "${{ steps.ver.outputs.VERSION }}"
+
+      - name: Verify EXE exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "client\dist\MinecraftTechLauncher.exe")) {
+            throw "EXE not found after build!"
+          }
+          $info = Get-Item "client\dist\MinecraftTechLauncher.exe"
+          Write-Host "EXE size: $($info.Length) bytes"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.ver.outputs.VERSION }}"
+          name: "Minecraft Tech Launcher v${{ steps.ver.outputs.VERSION }}"
+          body: |
+            ## Minecraft Tech Launcher — Create Aeronautics Pack
+
+            **One-click client installer** for the private Create Aeronautics tech server.
+
+            ### What it does
+            - Installs Java 21 (Temurin) via winget if missing
+            - Installs NeoForge `21.1.227` client profile
+            - Syncs mods with the server manifest (SHA-512 verified)
+            - Launches TLauncher (downloads if not installed)
+            - Shows live server status and player count
+
+            ### How to use
+            1. Download `MinecraftTechLauncher.exe`
+            2. Double-click → click **Play**
+            3. In TLauncher select version **neoforge-21.1.227** and launch
+
+            **Server:** `95.105.73.172:25565`
+          files: client/dist/MinecraftTechLauncher.exe
+          make_latest: true
+          token: ${{ secrets.GITHUB_TOKEN }}

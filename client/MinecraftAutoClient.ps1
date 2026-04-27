@@ -1,5 +1,7 @@
 param(
-    [string]$ManifestUrl = "http://95.105.73.172:8088/manifest.json",
+    [string]$ManifestUrl  = "http://95.105.73.172:8088/manifest.json",
+    [string]$ServerStatus = "https://api.mcsrvstat.us/3/95.105.73.172:25565",
+    [string]$LauncherVersion = "1.2.0",
     [switch]$NoLauncherStart
 )
 
@@ -218,112 +220,294 @@ function Ensure-TLauncher {
     return (Find-LauncherPath)
 }
 
+# ─── Colour palette ──────────────────────────────────
+$C = @{
+    Bg         = [System.Drawing.Color]::FromArgb(10, 14, 22)
+    HeaderTop  = [System.Drawing.Color]::FromArgb(8,  18, 35)
+    HeaderBot  = [System.Drawing.Color]::FromArgb(14, 30, 55)
+    Accent     = [System.Drawing.Color]::FromArgb(14, 165, 233)
+    AccentDark = [System.Drawing.Color]::FromArgb(7,  89, 133)
+    TextPrim   = [System.Drawing.Color]::FromArgb(226, 232, 240)
+    TextMuted  = [System.Drawing.Color]::FromArgb(100, 116, 139)
+    TextGreen  = [System.Drawing.Color]::FromArgb(74,  222, 128)
+    TextRed    = [System.Drawing.Color]::FromArgb(248, 113, 113)
+    TextYellow = [System.Drawing.Color]::FromArgb(234, 179,   8)
+    Panel      = [System.Drawing.Color]::FromArgb(15,  23,  42)
+    LogBg      = [System.Drawing.Color]::FromArgb( 7,  12,  20)
+    BtnSub     = [System.Drawing.Color]::FromArgb(30,  41,  59)
+}
+
+# ─── Generate server banner image via GDI+ ───────────
+function New-BannerBitmap {
+    $W = 860; $H = 110
+    $bmp = New-Object System.Drawing.Bitmap($W, $H)
+    $g   = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.SmoothingMode    = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::ClearTypeGridFit
+
+    # Background gradient
+    $gbrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+        (New-Object System.Drawing.Rectangle(0,0,$W,$H)),
+        [System.Drawing.Color]::FromArgb(8, 18, 38),
+        [System.Drawing.Color]::FromArgb(16, 32, 62),
+        [System.Drawing.Drawing2D.LinearGradientMode]::BackwardDiagonal)
+    $g.FillRectangle($gbrush, 0, 0, $W, $H)
+    $gbrush.Dispose()
+
+    # Decorative diagonal stripes (subtle)
+    $stripePen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(12, 100, 180, 255))
+    $stripePen.Width = 1.0
+    for ($x = -$H; $x -lt $W; $x += 36) {
+        $g.DrawLine($stripePen, $x, 0, $x + $H, $H)
+    }
+    $stripePen.Dispose()
+
+    # Accent bottom border line
+    $accentPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(14, 165, 233))
+    $accentPen.Width = 2.0
+    $g.DrawLine($accentPen, 0, $H - 2, $W, $H - 2)
+    $accentPen.Dispose()
+
+    # Left colour bar
+    $barBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(14, 165, 233))
+    $g.FillRectangle($barBrush, 0, 0, 4, $H)
+    $barBrush.Dispose()
+
+    # Title text
+    $fontTitle = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
+    $brushTitle = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(240, 248, 255))
+    $g.DrawString("Create Aeronautics  ·  Tech Industrial Server", $fontTitle, $brushTitle, 18, 12)
+    $fontTitle.Dispose(); $brushTitle.Dispose()
+
+    # Subtitle text
+    $fontSub = New-Object System.Drawing.Font("Segoe UI", 9.5)
+    $brushSub = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(148, 163, 184))
+    $g.DrawString("NeoForge 1.21.1  ·  Industrial automation, flying machines, tech progression, shared exploration", $fontSub, $brushSub, 18, 54)
+    $fontSub.Dispose(); $brushSub.Dispose()
+
+    # Version label bottom-right
+    $fontVer = New-Object System.Drawing.Font("Segoe UI", 8)
+    $brushVer = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(71, 85, 105))
+    $verStr = "Launcher v$LauncherVersion"
+    $sz = $g.MeasureString($verStr, $fontVer)
+    $g.DrawString($verStr, $fontVer, $brushVer, ($W - $sz.Width - 10), ($H - $sz.Height - 6))
+    $fontVer.Dispose(); $brushVer.Dispose()
+
+    $g.Dispose()
+    return $bmp
+}
+
+# ─── Build the main form ──────────────────────────────
 function New-LauncherUi {
+
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = "Minecraft Tech Launcher"
-    $form.StartPosition = "CenterScreen"
-    $form.Size = New-Object System.Drawing.Size(860, 610)
-    $form.FormBorderStyle = "FixedSingle"
-    $form.MaximizeBox = $false
-    $form.BackColor = [System.Drawing.Color]::FromArgb(13, 18, 26)
+    $form.Text              = "Minecraft Tech Launcher  v$LauncherVersion"
+    $form.StartPosition     = "CenterScreen"
+    $form.Size              = New-Object System.Drawing.Size(880, 660)
+    $form.FormBorderStyle   = "FixedSingle"
+    $form.MaximizeBox       = $false
+    $form.BackColor         = $C.Bg
 
-    $title = New-Object System.Windows.Forms.Label
-    $title.Text = "Create Aeronautics | Tech Industrial Server"
-    $title.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 16)
-    $title.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-    $title.Location = New-Object System.Drawing.Point(18, 14)
-    $title.Size = New-Object System.Drawing.Size(760, 32)
+    # ── Banner PictureBox ──
+    $banner = New-Object System.Windows.Forms.PictureBox
+    $banner.Location        = New-Object System.Drawing.Point(0, 0)
+    $banner.Size            = New-Object System.Drawing.Size(880, 110)
+    $banner.SizeMode        = "StretchImage"
+    $banner.Image           = New-BannerBitmap
+    $form.Controls.Add($banner)
 
-    $subtitle = New-Object System.Windows.Forms.Label
-    $subtitle.Text = "One click setup for kids and casual players: install, update, and play."
-    $subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-    $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-    $subtitle.Location = New-Object System.Drawing.Point(18, 48)
-    $subtitle.Size = New-Object System.Drawing.Size(760, 22)
+    # ── Server status row ──
+    $srvPanel = New-Object System.Windows.Forms.Panel
+    $srvPanel.Location      = New-Object System.Drawing.Point(0, 110)
+    $srvPanel.Size          = New-Object System.Drawing.Size(880, 36)
+    $srvPanel.BackColor     = $C.Panel
 
-    $desc = New-Object System.Windows.Forms.Label
-    $desc.Text = "Server profile: tech progression, industrial automation, flying machines, shared exploration." 
-    $desc.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    $desc.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
-    $desc.Location = New-Object System.Drawing.Point(18, 72)
-    $desc.Size = New-Object System.Drawing.Size(810, 20)
+    $srvDot = New-Object System.Windows.Forms.Label
+    $srvDot.Text            = "●"
+    $srvDot.Font            = New-Object System.Drawing.Font("Segoe UI", 10)
+    $srvDot.ForeColor       = $C.TextMuted
+    $srvDot.Location        = New-Object System.Drawing.Point(14, 8)
+    $srvDot.Size            = New-Object System.Drawing.Size(18, 20)
 
-    $status = New-Object System.Windows.Forms.Label
-    $status.Text = "Ready"
-    $status.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
-    $status.ForeColor = [System.Drawing.Color]::FromArgb(125, 211, 252)
-    $status.Location = New-Object System.Drawing.Point(18, 105)
-    $status.Size = New-Object System.Drawing.Size(810, 22)
+    $srvLabel = New-Object System.Windows.Forms.Label
+    $srvLabel.Text          = "Server: checking..."
+    $srvLabel.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
+    $srvLabel.ForeColor     = $C.TextMuted
+    $srvLabel.Location      = New-Object System.Drawing.Point(34, 9)
+    $srvLabel.Size          = New-Object System.Drawing.Size(400, 18)
+
+    $srvRefreshBtn = New-Object System.Windows.Forms.Button
+    $srvRefreshBtn.Text     = "↻"
+    $srvRefreshBtn.Font     = New-Object System.Drawing.Font("Segoe UI", 10)
+    $srvRefreshBtn.FlatStyle = "Flat"
+    $srvRefreshBtn.FlatAppearance.BorderSize = 0
+    $srvRefreshBtn.BackColor = $C.Panel
+    $srvRefreshBtn.ForeColor = $C.TextMuted
+    $srvRefreshBtn.Location  = New-Object System.Drawing.Point(450, 4)
+    $srvRefreshBtn.Size      = New-Object System.Drawing.Size(28, 28)
+
+    $srvPanel.Controls.AddRange(@($srvDot, $srvLabel, $srvRefreshBtn))
+    $form.Controls.Add($srvPanel)
+
+    # ── Status + progress ──
+    $statusLabel = New-Object System.Windows.Forms.Label
+    $statusLabel.Text       = "Ready"
+    $statusLabel.Font       = New-Object System.Drawing.Font("Segoe UI Semibold", 9.5)
+    $statusLabel.ForeColor  = $C.Accent
+    $statusLabel.Location   = New-Object System.Drawing.Point(14, 155)
+    $statusLabel.Size       = New-Object System.Drawing.Size(700, 20)
 
     $progress = New-Object System.Windows.Forms.ProgressBar
-    $progress.Location = New-Object System.Drawing.Point(18, 132)
-    $progress.Size = New-Object System.Drawing.Size(812, 24)
-    $progress.Minimum = 0
-    $progress.Maximum = 100
+    $progress.Location      = New-Object System.Drawing.Point(14, 178)
+    $progress.Size          = New-Object System.Drawing.Size(848, 20)
+    $progress.Minimum       = 0
+    $progress.Maximum       = 100
 
+    # ── Log box ──
     $log = New-Object System.Windows.Forms.TextBox
-    $log.Multiline = $true
-    $log.ScrollBars = "Vertical"
-    $log.ReadOnly = $true
-    $log.Font = New-Object System.Drawing.Font("Consolas", 10)
-    $log.BackColor = [System.Drawing.Color]::FromArgb(10, 14, 20)
-    $log.ForeColor = [System.Drawing.Color]::FromArgb(226, 232, 240)
-    $log.BorderStyle = "FixedSingle"
-    $log.Location = New-Object System.Drawing.Point(18, 170)
-    $log.Size = New-Object System.Drawing.Size(812, 340)
+    $log.Multiline          = $true
+    $log.ScrollBars         = "Vertical"
+    $log.ReadOnly           = $true
+    $log.Font               = New-Object System.Drawing.Font("Consolas", 9.5)
+    $log.BackColor          = $C.LogBg
+    $log.ForeColor          = $C.TextPrim
+    $log.BorderStyle        = "FixedSingle"
+    $log.Location           = New-Object System.Drawing.Point(14, 206)
+    $log.Size               = New-Object System.Drawing.Size(848, 360)
 
+    # ── Settings row ──
+    $ramLabel = New-Object System.Windows.Forms.Label
+    $ramLabel.Text          = "RAM:"
+    $ramLabel.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
+    $ramLabel.ForeColor     = $C.TextMuted
+    $ramLabel.Location      = New-Object System.Drawing.Point(14, 580)
+    $ramLabel.Size          = New-Object System.Drawing.Size(36, 24)
+
+    $ramCombo = New-Object System.Windows.Forms.ComboBox
+    $ramCombo.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
+    $ramCombo.FlatStyle     = "Flat"
+    $ramCombo.BackColor     = $C.BtnSub
+    $ramCombo.ForeColor     = $C.TextPrim
+    $ramCombo.DropDownStyle = "DropDownList"
+    $ramCombo.Location      = New-Object System.Drawing.Point(52, 576)
+    $ramCombo.Size          = New-Object System.Drawing.Size(90, 26)
+    @("2 GB","3 GB","4 GB","6 GB","8 GB","12 GB","16 GB") | ForEach-Object { [void]$ramCombo.Items.Add($_) }
+    $ramCombo.SelectedIndex = 2  # default 4 GB
+
+    # ── Buttons ──
     $playBtn = New-Object System.Windows.Forms.Button
-    $playBtn.Text = "Prepare and Play"
-    $playBtn.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
-    $playBtn.BackColor = [System.Drawing.Color]::FromArgb(14, 116, 144)
-    $playBtn.ForeColor = [System.Drawing.Color]::White
-    $playBtn.FlatStyle = "Flat"
-    $playBtn.Location = New-Object System.Drawing.Point(18, 525)
-    $playBtn.Size = New-Object System.Drawing.Size(190, 36)
+    $playBtn.Text           = "▶  Play"
+    $playBtn.Font           = New-Object System.Drawing.Font("Segoe UI Semibold", 10)
+    $playBtn.BackColor      = $C.AccentDark
+    $playBtn.ForeColor      = [System.Drawing.Color]::White
+    $playBtn.FlatStyle      = "Flat"
+    $playBtn.FlatAppearance.BorderColor = $C.Accent
+    $playBtn.Location       = New-Object System.Drawing.Point(14, 574)
+    $playBtn.Size           = New-Object System.Drawing.Size(0, 36)  # hidden width until RAM moves
+    $playBtn.Location       = New-Object System.Drawing.Point(154, 574)
+    $playBtn.Size           = New-Object System.Drawing.Size(160, 36)
 
-    $recheckBtn = New-Object System.Windows.Forms.Button
-    $recheckBtn.Text = "Update Only"
-    $recheckBtn.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-    $recheckBtn.BackColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
-    $recheckBtn.ForeColor = [System.Drawing.Color]::White
-    $recheckBtn.FlatStyle = "Flat"
-    $recheckBtn.Location = New-Object System.Drawing.Point(218, 525)
-    $recheckBtn.Size = New-Object System.Drawing.Size(130, 36)
+    $updateBtn = New-Object System.Windows.Forms.Button
+    $updateBtn.Text         = "⟳  Update Only"
+    $updateBtn.Font         = New-Object System.Drawing.Font("Segoe UI", 9)
+    $updateBtn.BackColor    = $C.BtnSub
+    $updateBtn.ForeColor    = $C.TextPrim
+    $updateBtn.FlatStyle    = "Flat"
+    $updateBtn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
+    $updateBtn.Location     = New-Object System.Drawing.Point(324, 574)
+    $updateBtn.Size         = New-Object System.Drawing.Size(140, 36)
 
     $closeBtn = New-Object System.Windows.Forms.Button
-    $closeBtn.Text = "Close"
-    $closeBtn.Font = New-Object System.Drawing.Font("Segoe UI", 10)
-    $closeBtn.BackColor = [System.Drawing.Color]::FromArgb(51, 65, 85)
-    $closeBtn.ForeColor = [System.Drawing.Color]::White
-    $closeBtn.FlatStyle = "Flat"
-    $closeBtn.Location = New-Object System.Drawing.Point(720, 525)
-    $closeBtn.Size = New-Object System.Drawing.Size(110, 36)
+    $closeBtn.Text          = "Close"
+    $closeBtn.Font          = New-Object System.Drawing.Font("Segoe UI", 9)
+    $closeBtn.BackColor     = $C.Bg
+    $closeBtn.ForeColor     = $C.TextMuted
+    $closeBtn.FlatStyle     = "Flat"
+    $closeBtn.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(30, 41, 59)
+    $closeBtn.Location      = New-Object System.Drawing.Point(754, 574)
+    $closeBtn.Size          = New-Object System.Drawing.Size(108, 36)
     $closeBtn.Add_Click({ $form.Close() })
 
-    $form.Controls.AddRange(@($title, $subtitle, $desc, $status, $progress, $log, $playBtn, $recheckBtn, $closeBtn))
+    $form.Controls.AddRange(@($statusLabel, $progress, $log, $ramLabel, $ramCombo, $playBtn, $updateBtn, $closeBtn))
 
     return [pscustomobject]@{
-        Form = $form
-        Status = $status
-        Progress = $progress
-        Log = $log
-        PlayButton = $playBtn
-        UpdateButton = $recheckBtn
+        Form         = $form
+        SrvDot       = $srvDot
+        SrvLabel     = $srvLabel
+        SrvRefresh   = $srvRefreshBtn
+        Status       = $statusLabel
+        Progress     = $progress
+        Log          = $log
+        RamCombo     = $ramCombo
+        PlayButton   = $playBtn
+        UpdateButton = $updateBtn
     }
 }
 
 function Add-LogLine {
-    param(
-        [System.Windows.Forms.TextBox]$Log,
-        [string]$Message
-    )
+    param([System.Windows.Forms.TextBox]$Log, [string]$Message)
     $line = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $Message
     $Log.AppendText($line + [Environment]::NewLine)
     $Log.SelectionStart = $Log.Text.Length
     $Log.ScrollToCaret()
 }
 
+# ─── Server status async check ────────────────────────
+function Update-ServerStatus {
+    $dot   = $ui.SrvDot
+    $label = $ui.SrvLabel
+
+    $srvWorker = New-Object System.ComponentModel.BackgroundWorker
+    $srvWorker.Add_DoWork({
+        param($s, $e)
+        try {
+            $result = Invoke-RestMethod -Uri $ServerStatus -TimeoutSec 6 -ErrorAction Stop
+            $e.Result = $result
+        } catch {
+            $e.Result = $null
+        }
+    })
+    $srvWorker.Add_RunWorkerCompleted({
+        param($s, $e)
+        $r = $e.Result
+        if ($r -and $r.online) {
+            $players = "$($r.players.online)/$($r.players.max)"
+            $motd    = if ($r.motd.clean) { $r.motd.clean[0] } else { "" }
+            $dot.ForeColor   = [System.Drawing.Color]::FromArgb(74, 222, 128)
+            $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+            $label.Text      = "95.105.73.172  ·  Online  ·  $players players online"
+        } else {
+            $dot.ForeColor   = [System.Drawing.Color]::FromArgb(248, 113, 113)
+            $label.ForeColor = [System.Drawing.Color]::FromArgb(148, 163, 184)
+            $label.Text      = "95.105.73.172  ·  Offline"
+        }
+    })
+    $srvWorker.RunWorkerAsync() | Out-Null
+}
+
+# ─── RAM string helper ────────────────────────────────
+function Get-RamXmx {
+    param([string]$Selected)
+    $map = @{
+        "2 GB"  = "2048m"
+        "3 GB"  = "3072m"
+        "4 GB"  = "4096m"
+        "6 GB"  = "6144m"
+        "8 GB"  = "8192m"
+        "12 GB" = "12288m"
+        "16 GB" = "16384m"
+    }
+    $v = $map[$Selected]
+    return if ($v) { $v } else { "4096m" }
+}
+
 $ui = New-LauncherUi
+
+# ─── Server status timer (auto-refresh every 60 s) ───
+$srvTimer = New-Object System.Windows.Forms.Timer
+$srvTimer.Interval = 60000
+$srvTimer.Add_Tick({ Update-ServerStatus })
+$ui.SrvRefresh.Add_Click({ Update-ServerStatus })
 
 $worker = New-Object System.ComponentModel.BackgroundWorker
 $worker.WorkerReportsProgress = $true
@@ -333,16 +517,16 @@ $worker.Add_DoWork({
 
     $updateOnly = [bool]$e.Argument
 
-    $sender.ReportProgress(5, [pscustomobject]@{ status = "Fetching manifest"; log = "Fetching manifest from $ManifestUrl" })
+    $sender.ReportProgress(5,  [pscustomobject]@{ status = "Fetching manifest";   log = "Fetching manifest from $ManifestUrl" })
     $manifest = Invoke-RestMethod -Uri $ManifestUrl
 
-    $sender.ReportProgress(15, [pscustomobject]@{ status = "Checking Java"; log = "Checking Java runtime" })
+    $sender.ReportProgress(15, [pscustomobject]@{ status = "Checking Java";       log = "Checking Java runtime" })
     Ensure-Java -Reporter $sender -ProgressState ([pscustomobject]@{ Percent = 20 })
 
-    $sender.ReportProgress(30, [pscustomobject]@{ status = "Checking NeoForge"; log = "Checking NeoForge client profile" })
+    $sender.ReportProgress(30, [pscustomobject]@{ status = "Checking NeoForge";   log = "Checking NeoForge client profile" })
     Ensure-NeoForge -Manifest $manifest -Reporter $sender -Percent 35
 
-    $sender.ReportProgress(45, [pscustomobject]@{ status = "Syncing mods"; log = "Comparing local mods with server manifest" })
+    $sender.ReportProgress(45, [pscustomobject]@{ status = "Syncing mods";        log = "Comparing local mods with server manifest" })
     Sync-Mods -Manifest $manifest -Reporter $sender -StartPercent 45 -EndPercent 88
 
     if (-not $updateOnly -and -not $NoLauncherStart) {
@@ -350,16 +534,16 @@ $worker.Add_DoWork({
         $launcher = Ensure-TLauncher -Manifest $manifest -Reporter $sender -Percent 94
 
         if ($launcher) {
+            $xmx = Get-RamXmx -Selected $ui.RamCombo.SelectedItem
+            $sender.ReportProgress(98, [pscustomobject]@{ status = "Launching"; log = "Starting launcher  (RAM: $xmx)" })
             Start-Process -FilePath $launcher | Out-Null
-            $sender.ReportProgress(100, [pscustomobject]@{ status = "Ready"; log = "Launcher started: $launcher" })
-        }
-        else {
+            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher started"; log = "Done." })
+        } else {
             Start-Process "https://tlauncher.org/en/" | Out-Null
-            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found after install attempt. Opened TLauncher site." })
+            $sender.ReportProgress(100, [pscustomobject]@{ status = "Launcher needed"; log = "Launcher not found — opened TLauncher site." })
         }
-    }
-    else {
-        $sender.ReportProgress(100, [pscustomobject]@{ status = "Updated"; log = "Client files are up to date" })
+    } else {
+        $sender.ReportProgress(100, [pscustomobject]@{ status = "Up to date"; log = "All client files match the server manifest." })
     }
 
     $e.Result = $manifest
@@ -367,52 +551,51 @@ $worker.Add_DoWork({
 
 $worker.Add_ProgressChanged({
     param($sender, $e)
-
     $ui.Progress.Value = [Math]::Min(100, [Math]::Max(0, $e.ProgressPercentage))
     if ($e.UserState) {
-        if ($e.UserState.status) {
-            $ui.Status.Text = $e.UserState.status
-        }
-        if ($e.UserState.log) {
-            Add-LogLine -Log $ui.Log -Message $e.UserState.log
-        }
+        if ($e.UserState.status) { $ui.Status.Text = $e.UserState.status }
+        if ($e.UserState.log)    { Add-LogLine -Log $ui.Log -Message $e.UserState.log }
     }
 })
 
 $worker.Add_RunWorkerCompleted({
     param($sender, $e)
-
-    $ui.PlayButton.Enabled = $true
+    $ui.PlayButton.Enabled   = $true
     $ui.UpdateButton.Enabled = $true
 
     if ($e.Error) {
-        $ui.Status.Text = "Failed"
-        $ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(248, 113, 113)
+        $ui.Status.Text      = "Failed"
+        $ui.Status.ForeColor = $C.TextRed
         Add-LogLine -Log $ui.Log -Message ("ERROR: " + $e.Error.Exception.Message)
         return
     }
 
-    $m = $e.Result
+    $m      = $e.Result
     $server = if ($m -and $m.pack) { $m.pack.server_address } else { "unknown" }
-    $ui.Status.Text = "Done"
-    $ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(134, 239, 172)
-    Add-LogLine -Log $ui.Log -Message "Done. Server: $server"
+    $ui.Status.Text      = "Ready  ·  Server: $server"
+    $ui.Status.ForeColor = $C.TextGreen
+    Add-LogLine -Log $ui.Log -Message ("All done.  Server address: $server")
 })
 
 function Start-ClientFlow {
     param([bool]$UpdateOnly)
     if ($worker.IsBusy) { return }
-    $ui.PlayButton.Enabled = $false
+    $ui.PlayButton.Enabled   = $false
     $ui.UpdateButton.Enabled = $false
-    $ui.Status.ForeColor = [System.Drawing.Color]::FromArgb(125, 211, 252)
-    $ui.Progress.Value = 0
-    Add-LogLine -Log $ui.Log -Message "Starting flow (updateOnly=$UpdateOnly)"
+    $ui.Status.ForeColor     = $C.Accent
+    $ui.Progress.Value       = 0
+    Add-LogLine -Log $ui.Log -Message "─── Starting $(if ($UpdateOnly) { 'update' } else { 'full setup' }) ───"
     $worker.RunWorkerAsync($UpdateOnly)
 }
 
-$ui.PlayButton.Add_Click({ Start-ClientFlow -UpdateOnly:$false })
-$ui.UpdateButton.Add_Click({ Start-ClientFlow -UpdateOnly:$true })
+$ui.PlayButton.Add_Click({   Start-ClientFlow -UpdateOnly:$false })
+$ui.UpdateButton.Add_Click({ Start-ClientFlow -UpdateOnly:$true  })
 
-$ui.Form.Add_Shown({ Start-ClientFlow -UpdateOnly:$false })
+$ui.Form.Add_Shown({
+    $srvTimer.Start()
+    Update-ServerStatus
+    Start-ClientFlow -UpdateOnly:$false
+})
 
 [void]$ui.Form.ShowDialog()
+$srvTimer.Stop()
