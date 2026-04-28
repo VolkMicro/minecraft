@@ -65,9 +65,9 @@ echo "==> Step 8: Download Prestarter.exe"
 docker compose exec gravitlauncher wget -q -O /app/data/Prestarter.exe \
     https://github.com/GravitLauncher/LauncherPrestarter/releases/latest/download/Prestarter.exe
 
-echo "==> Step 9: Persist Prestarter module in modules.json, then restart"
+echo "==> Step 9: Persist Prestarter module in modules.json (including JavaRuntime.jar), then restart"
 docker compose exec gravitlauncher bash -c \
-    'echo "{\"loadModules\":[\"MirrorHelper_module\",\"Prestarter_module\"],\"loadLauncherModules\":[]}" > /app/data/modules.json'
+    'echo "{\"loadModules\":[\"MirrorHelper_module\",\"Prestarter_module\"],\"loadLauncherModules\":[\"JavaRuntime.jar\"]}" > /app/data/modules.json'
 docker compose restart gravitlauncher
 echo "    Waiting for restart..."
 sleep 10

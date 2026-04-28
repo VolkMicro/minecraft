@@ -47,6 +47,8 @@ services:
       - ./gravitlauncher/data:/app/data
     environment:
       TZ: "Europe/Moscow"
+    entrypoint: ["/bin/sh", "/app/data/init.sh"]
+    command: []
 
   gravitlauncher-nginx:
     image: nginx:stable
