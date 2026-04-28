@@ -37,6 +37,29 @@ services:
       - ./data:/data
       - ./extras:/extras:ro
 
+  gravitlauncher:
+    image: ghcr.io/gravitlauncher/launcher:v5.7.11
+    container_name: mc-gravitlauncher
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./gravitlauncher/data:/app/data
+    environment:
+      TZ: "Europe/Moscow"
+
+  gravitlauncher-nginx:
+    image: nginx:stable
+    container_name: mc-gravitlauncher-nginx
+    restart: unless-stopped
+    ports:
+      - "7240:80"
+    volumes:
+      - ./gravitlauncher/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./gravitlauncher/data/updates:/volume:ro
+    depends_on:
+      - gravitlauncher
+
   modpack-http:
     image: caddy:2-alpine
     container_name: mc-modpack-http
