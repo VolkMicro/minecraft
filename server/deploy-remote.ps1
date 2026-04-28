@@ -44,11 +44,13 @@ try {
     Set-SCPItem -ComputerName $RemoteHost -Credential $credential -KeyFile $KeyFile -AcceptKey `
         -Path (Join-Path $serverRoot 'modpack\index.html') -Destination "$RemoteDir/modpack/" -Force
 
-    # GravitLauncher nginx config + setup script
+    # GravitLauncher nginx config, setup script + preset config
     Set-SCPItem -ComputerName $RemoteHost -Credential $credential -KeyFile $KeyFile -AcceptKey `
         -Path (Join-Path $serverRoot 'gravitlauncher\nginx.conf') -Destination "$RemoteDir/gravitlauncher/" -Force
     Set-SCPItem -ComputerName $RemoteHost -Credential $credential -KeyFile $KeyFile -AcceptKey `
         -Path (Join-Path $serverRoot 'gravitlauncher\setup-launchserver.sh') -Destination "$RemoteDir/gravitlauncher/" -Force
+    Set-SCPItem -ComputerName $RemoteHost -Credential $credential -KeyFile $KeyFile -AcceptKey `
+        -Path (Join-Path $serverRoot 'gravitlauncher\data\modules.json') -Destination "$RemoteDir/gravitlauncher/data/" -Force
     Invoke-SSHCommand -SessionId $session.SessionId -Command `
         "chmod +x $RemoteDir/gravitlauncher/setup-launchserver.sh" | Out-Null
 

@@ -61,13 +61,23 @@ docker compose exec gravitlauncher bash -c "
     unzip -o runtime.zip && rm runtime.zip
 "
 
-echo "==> Step 8: Load launcher modules (runtime + Prestarter)"
-CMD "modules launcher-load JavaRuntime.jar"
-CMD "modules load Prestarter"
-
-echo "==> Step 9: Download Prestarter.exe"
+echo "==> Step 8: Download Prestarter.exe"
 docker compose exec gravitlauncher wget -q -O /app/data/Prestarter.exe \
     https://github.com/GravitLauncher/LauncherPrestarter/releases/latest/download/Prestarter.exe
+
+echo "==> Step 9: Persist Prestarter module in modules.json, then restart"
+docker compose exec gravitlauncher bash -c \
+    'echo "{\"loadModules\":[\"MirrorHelper_module\",\"Prestarter_module\"],\"loadLauncherModules\":[]}" > /app/data/modules.json'
+docker compose restart gravitlauncher
+echo "    Waiting for restart..."
+sleep 10
+for i in $(seq 1 20); do
+    if docker compose exec -T gravitlauncher test -S /app/data/control-file 2>/dev/null; then
+        echo "    OK (attempt $i)"
+        break
+    fi
+    sleep 3
+done
 
 echo "==> Step 10: Download 19 mods into client folder"
 MODS_DIR="/app/data/updates/CreateAeronautics/mods"
@@ -140,10 +150,7 @@ for p in profiles:
 \"
 "
 
-echo "==> Step 13: syncprofiles"
-CMD "syncprofiles"
-
-echo "==> Step 14: Build Launcher.exe"
+echo "==> Step 13: Build Launcher.exe (Prestarter wraps JAR into EXE)"
 CMD "build"
 
 echo ""
