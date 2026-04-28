@@ -525,8 +525,9 @@ function Write-HMCLConfig {
         selectedMinecraftVersion = $VersionId
     }
 
-    $globalConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $script:HMCLGlobalConfigPath -Encoding UTF8
-    $config | ConvertTo-Json -Depth 10 | Set-Content -Path $script:HMCLConfigPath -Encoding UTF8
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($script:HMCLGlobalConfigPath, ($globalConfig | ConvertTo-Json -Depth 10), $utf8NoBom)
+    [System.IO.File]::WriteAllText($script:HMCLConfigPath, ($config | ConvertTo-Json -Depth 10), $utf8NoBom)
 }
 
 function Start-HMCL {
