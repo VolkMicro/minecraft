@@ -10,9 +10,10 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
-$script:AppRoot    = Join-Path $env:LOCALAPPDATA "MinecraftTechLauncher"
-$script:LauncherExe = Join-Path $script:AppRoot "GravitLauncher.exe"
-$script:VersionFile = Join-Path $script:AppRoot "launcher-version.txt"
+$script:AppRoot      = Join-Path $env:LOCALAPPDATA "MinecraftTechLauncher"
+$script:LauncherJar  = Join-Path $script:AppRoot "GravitLauncher.jar"
+$script:RuntimeDir   = Join-Path $script:AppRoot "runtime"
+$script:VersionFile  = Join-Path $script:AppRoot "launcher-version.txt"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UI
@@ -61,11 +62,13 @@ function Write-Log {
     $line = "[$ts] $Message"
     Write-Host $line
     if ($script:ui) {
-        $script:ui.Label.Text = $Message
-        if ($Percent -ge 0) { $script:ui.Bar.Value = [Math]::Min(100, $Percent) }
-        $script:ui.Log.AppendText($line + "`n")
-        $script:ui.Log.ScrollToCaret()
-        [System.Windows.Forms.Application]::DoEvents()
+        $msg = $Message; $pct = $Percent; $ln = $line
+        $script:ui.Form.BeginInvoke([Action]{
+            $script:ui.Label.Text = $msg
+            if ($pct -ge 0) { $script:ui.Bar.Value = [Math]::Min(100, $pct) }
+            $script:ui.Log.AppendText($ln + "`n")
+            $script:ui.Log.ScrollToCaret()
+        })
     }
 }
 
@@ -91,6 +94,7 @@ function Invoke-Download {
 function Invoke-Bootstrap {
     New-Item -ItemType Directory -Force -Path $script:AppRoot | Out-Null
 
+    # ── 1. Проверяем версию лаунчера ─────────────────────────────────────────
     Write-Log "Проверяем версию лаунчера на сервере..." 10
     $serverVersion = $null
     try {
@@ -102,19 +106,40 @@ function Invoke-Bootstrap {
         (Get-Content $script:VersionFile -Raw).Trim()
     } else { "" }
 
-    $needDownload = (-not (Test-Path $script:LauncherExe)) -or
+    $needDownload = (-not (Test-Path $script:LauncherJar)) -or
                     ($serverVersion -and $localVersion -ne $serverVersion)
 
     if ($needDownload) {
-        Write-Log "Скачиваем GravitLauncher с сервера..." 30
-        Invoke-Download -Uri "$LaunchServerUrl/Launcher.exe" -OutFile $script:LauncherExe
+        Write-Log "Скачиваем GravitLauncher.jar с сервера..." 20
+        Invoke-Download -Uri "$LaunchServerUrl/Launcher.jar" -OutFile $script:LauncherJar
         if ($serverVersion) {
             [System.IO.File]::WriteAllText($script:VersionFile, $serverVersion,
                 [System.Text.UTF8Encoding]::new($false))
         }
-        Write-Log "GravitLauncher загружен." 80
+        Write-Log "GravitLauncher.jar загружен." 45
     } else {
-        Write-Log "GravitLauncher актуален." 80
+        Write-Log "GravitLauncher.jar актуален." 45
+    }
+
+    # ── 2. Java runtime с JavaFX ─────────────────────────────────────────────
+    $javaExe = Join-Path $script:RuntimeDir "bin\java.exe"
+    if (-not (Test-Path $javaExe)) {
+        Write-Log "Скачиваем Java runtime (~94 МБ, первый запуск)..." 50
+        $runtimeZip = Join-Path $env:TEMP "gl-runtime.zip"
+        Invoke-Download -Uri "$LaunchServerUrl/runtime.zip" -OutFile $runtimeZip
+        Write-Log "Распаковываем Java runtime..." 75
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $tmpExtract = Join-Path $env:TEMP "gl-runtime-extract"
+        if (Test-Path $tmpExtract) { Remove-Item $tmpExtract -Recurse -Force }
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($runtimeZip, $tmpExtract)
+        $innerDir = Get-ChildItem $tmpExtract | Select-Object -First 1
+        if (Test-Path $script:RuntimeDir) { Remove-Item $script:RuntimeDir -Recurse -Force }
+        Move-Item $innerDir.FullName $script:RuntimeDir
+        Remove-Item $runtimeZip -Force -ErrorAction SilentlyContinue
+        Remove-Item $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Log "Java runtime установлен." 85
+    } else {
+        Write-Log "Java runtime актуален." 85
     }
 
     if ($NoLauncherStart) {
@@ -122,11 +147,12 @@ function Invoke-Bootstrap {
         return
     }
 
+    # ── 3. Запуск GravitLauncher ─────────────────────────────────────────────
     Write-Log "Запускаем лаунчер..." 95
-    Start-Process -FilePath $script:LauncherExe
+    Start-Process -FilePath $javaExe -ArgumentList @("-jar", $script:LauncherJar) -WorkingDirectory $script:AppRoot
     Write-Log "Лаунчер запущен. Окно закроется автоматически." 100
     Start-Sleep -Seconds 2
-    if ($script:ui) { $script:ui.Form.Close() }
+    if ($script:ui) { $script:ui.Form.BeginInvoke([Action]{ $script:ui.Form.Close() }) }
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
